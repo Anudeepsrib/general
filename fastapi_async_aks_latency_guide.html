@@ -1,0 +1,1952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="A production-oriented guide to FastAPI async caveats and low-latency deployment on Azure Kubernetes Service, covering AKS ingress, pod sizing, autoscaling, probes, graceful shutdown, workload identity, Key Vault, observability, testing, and rollout standards." />
+  <title>FastAPI Async on AKS: Latency Engineering and Production Standards</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #f5f8fc;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --text: #162033;
+      --muted: #5d6b82;
+      --border: #dbe4ef;
+      --primary: #3157c8;
+      --primary-soft: #e9efff;
+      --teal: #087f8c;
+      --teal-soft: #e5f7f8;
+      --orange: #b65a10;
+      --orange-soft: #fff3e7;
+      --red: #b42318;
+      --red-soft: #fff0ef;
+      --green: #287a45;
+      --green-soft: #ebf8ef;
+      --shadow: 0 16px 46px rgba(37, 59, 92, 0.10);
+      --code-bg: #101827;
+      --code-text: #e7edf7;
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: linear-gradient(180deg, #f4f7fc 0%, #ffffff 22%, #f7f9fc 100%);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.65;
+    }
+    a { color: var(--primary); }
+    code, pre { font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; }
+    code:not(pre code) {
+      background: #edf2f8;
+      border: 1px solid #dce5ef;
+      border-radius: 6px;
+      padding: 0.12rem 0.35rem;
+      font-size: 0.9em;
+    }
+
+    .page { max-width: 1500px; margin: 0 auto; padding: 26px; }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 54px 58px;
+      border: 1px solid #d8e2f0;
+      border-radius: 28px;
+      background:
+        radial-gradient(circle at 90% 15%, rgba(49,87,200,0.16), transparent 28%),
+        radial-gradient(circle at 15% 90%, rgba(8,127,140,0.13), transparent 34%),
+        #ffffff;
+      box-shadow: var(--shadow);
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -90px -120px auto;
+      width: 360px;
+      height: 360px;
+      border: 42px solid rgba(49,87,200,0.05);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .eyebrow {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 7px 11px;
+      background: var(--primary-soft);
+      border: 1px solid #cfdbff;
+      color: #294aa6;
+      border-radius: 999px;
+      font-weight: 750;
+      font-size: 0.77rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 1000px;
+      margin: 20px 0 14px;
+      font-size: clamp(2.2rem, 5vw, 4.5rem);
+      line-height: 1.05;
+      letter-spacing: -0.045em;
+    }
+    .hero p { max-width: 980px; color: var(--muted); font-size: 1.14rem; }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-top: 30px;
+    }
+    .hero-stat {
+      background: rgba(255,255,255,0.82);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+    }
+    .hero-stat strong { display: block; font-size: 1.35rem; color: var(--primary); }
+    .hero-stat span { color: var(--muted); font-size: 0.86rem; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 285px minmax(0, 1fr);
+      gap: 28px;
+      margin-top: 30px;
+      align-items: start;
+    }
+    .sidebar {
+      position: sticky;
+      top: 18px;
+      max-height: calc(100vh - 36px);
+      overflow: auto;
+      background: rgba(255,255,255,0.94);
+      border: 1px solid var(--border);
+      box-shadow: 0 8px 24px rgba(37, 59, 92, 0.07);
+      border-radius: var(--radius);
+      padding: 18px;
+    }
+    .sidebar h2 { font-size: 0.83rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; }
+    .toc { list-style: none; padding: 0; margin: 0; }
+    .toc a {
+      display: block;
+      padding: 8px 10px;
+      color: #33445f;
+      text-decoration: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+    }
+    .toc a:hover { background: var(--primary-soft); color: var(--primary); }
+    .print-btn {
+      width: 100%;
+      border: 0;
+      margin-top: 14px;
+      padding: 10px 12px;
+      border-radius: 9px;
+      background: var(--primary);
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    main { min-width: 0; }
+    section {
+      scroll-margin-top: 20px;
+      margin-bottom: 28px;
+      padding: 32px;
+      background: rgba(255,255,255,0.96);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 24px rgba(37, 59, 92, 0.055);
+    }
+    section h2 {
+      margin: 0 0 12px;
+      font-size: clamp(1.55rem, 2.6vw, 2.25rem);
+      line-height: 1.2;
+      letter-spacing: -0.025em;
+    }
+    section h3 { margin-top: 28px; font-size: 1.25rem; }
+    section p, section li { color: #3c4a61; }
+    .lead { color: var(--muted); font-size: 1.04rem; max-width: 1000px; }
+
+    .callout {
+      border-left: 5px solid var(--primary);
+      background: var(--primary-soft);
+      border-radius: 10px;
+      padding: 17px 19px;
+      margin: 18px 0;
+    }
+    .callout.warning { border-left-color: var(--orange); background: var(--orange-soft); }
+    .callout.danger { border-left-color: var(--red); background: var(--red-soft); }
+    .callout.success { border-left-color: var(--green); background: var(--green-soft); }
+    .callout strong { color: var(--text); }
+
+    .grid-2, .grid-3, .grid-4 { display: grid; gap: 17px; }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0,1fr)); }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px;
+      background: var(--surface-2);
+    }
+    .card h3, .card h4 { margin: 0 0 8px; color: var(--text); }
+    .card p { margin: 0; }
+    .metric { font-size: 1.7rem; font-weight: 780; color: var(--primary); line-height: 1.1; }
+    .metric-label { color: var(--muted); font-size: 0.85rem; }
+
+    .mermaid-wrap {
+      margin: 22px 0;
+      padding: 20px;
+      overflow: auto;
+      background: #fbfcff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+    }
+    .mermaid { min-width: 680px; }
+
+    .table-wrap { overflow-x: auto; margin: 18px 0; border: 1px solid var(--border); border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; min-width: 760px; background: white; }
+    th, td { padding: 13px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { background: #eff4fb; color: #22324e; font-size: 0.84rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    tr:last-child td { border-bottom: 0; }
+    td { color: #3a4860; }
+
+    .code-card { position: relative; margin: 18px 0; }
+    pre {
+      margin: 0;
+      padding: 22px;
+      overflow: auto;
+      border-radius: 13px;
+      background: var(--code-bg);
+      color: var(--code-text);
+      line-height: 1.55;
+      font-size: 0.88rem;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+    }
+    .copy-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.08);
+      color: white;
+      border-radius: 7px;
+      padding: 6px 9px;
+      cursor: pointer;
+      font-size: 0.75rem;
+    }
+    .good { color: #267a44; font-weight: 700; }
+    .bad { color: #b42318; font-weight: 700; }
+    .tag {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 0.76rem;
+      font-weight: 700;
+      background: #edf2f8;
+      color: #44536b;
+      margin-right: 5px;
+    }
+    .tag.critical { background: var(--red-soft); color: var(--red); }
+    .tag.high { background: var(--orange-soft); color: var(--orange); }
+    .tag.core { background: var(--primary-soft); color: var(--primary); }
+
+    details {
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 12px 15px;
+      margin: 10px 0;
+      background: white;
+    }
+    summary { cursor: pointer; font-weight: 750; color: #263751; }
+    .checklist { list-style: none; padding: 0; }
+    .checklist li { position: relative; padding: 7px 0 7px 30px; }
+    .checklist li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      top: 7px;
+      width: 20px;
+      height: 20px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: white;
+      background: var(--green);
+      font-size: 0.75rem;
+      font-weight: 900;
+    }
+
+    .priority-step {
+      display: grid;
+      grid-template-columns: 52px 1fr;
+      gap: 14px;
+      align-items: start;
+      margin: 13px 0;
+    }
+    .priority-number {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: var(--primary);
+      color: white;
+      font-weight: 800;
+    }
+    .priority-step h3 { margin: 0 0 3px; }
+    .priority-step p { margin: 0; }
+
+    footer { padding: 34px 12px 70px; color: var(--muted); font-size: 0.9rem; }
+    footer ul { columns: 2; }
+
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar { position: static; max-height: none; }
+      .hero-grid, .grid-4 { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 760px) {
+      .page { padding: 12px; }
+      .hero { padding: 34px 24px; }
+      .hero-grid, .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+      section { padding: 22px 18px; }
+      footer ul { columns: 1; }
+    }
+    @media print {
+      body { background: white; }
+      .page { max-width: none; padding: 0; }
+      .hero, section { box-shadow: none; break-inside: avoid; }
+      .layout { display: block; }
+      .sidebar, .copy-btn, .print-btn { display: none; }
+      a { color: black; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <header class="hero">
+    <span class="eyebrow">FastAPI on Azure Kubernetes Service</span>
+    <h1>FastAPI Async on AKS: Caveats, Latency Engineering, and Deployment Standards</h1>
+    <p>
+      A decision-oriented reference for building and operating low-latency FastAPI services on Azure Kubernetes
+      Service. It connects Python async behavior to pod sizing, ingress, autoscaling, Azure identity, connection
+      budgets, graceful termination, observability, and safe production rollout.
+    </p>
+    <div class="hero-grid">
+      <div class="hero-stat"><strong>Async ≠ faster CPU</strong><span>It increases useful concurrency while tasks wait.</span></div>
+      <div class="hero-stat"><strong>Protect the loop</strong><span>One blocking call can delay unrelated requests in that worker.</span></div>
+      <div class="hero-stat"><strong>Bound everything</strong><span>Concurrency, queues, pools, retries, payloads, and deadlines.</span></div>
+      <div class="hero-stat"><strong>Scale the bottleneck</strong><span>HPA, node capacity, pools, and downstream limits must move together.</span></div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <h2>Contents</h2>
+      <nav>
+        <ul class="toc">
+          <li><a href="#mental-model">1. Mental model</a></li>
+          <li><a href="#decision">2. def vs async def</a></li>
+          <li><a href="#caveats">3. Async caveats</a></li>
+          <li><a href="#latency">4. Latency model</a></li>
+          <li><a href="#priorities">5. Optimization priorities</a></li>
+          <li><a href="#standards">6. Implementation standards</a></li>
+          <li><a href="#http">7. Downstream HTTP</a></li>
+          <li><a href="#database">8. Database access</a></li>
+          <li><a href="#fanout">9. Fan-out and concurrency</a></li>
+          <li><a href="#timeouts">10. Deadlines and cancellation</a></li>
+          <li><a href="#cpu">11. CPU-bound work</a></li>
+          <li><a href="#background">12. Background work</a></li>
+          <li><a href="#deployment">13. AKS target architecture</a></li>
+          <li><a href="#pod-model">14. Pod and process model</a></li>
+          <li><a href="#manifests">15. AKS manifests</a></li>
+          <li><a href="#autoscaling">16. Autoscaling and capacity</a></li>
+          <li><a href="#ingress-lifecycle">17. Ingress and shutdown</a></li>
+          <li><a href="#azure-platform">18. Identity, secrets, network</a></li>
+          <li><a href="#observability">19. AKS observability</a></li>
+          <li><a href="#testing">20. Testing and rollout</a></li>
+          <li><a href="#reference">21. Reference implementation</a></li>
+          <li><a href="#checklist">22. AKS review checklist</a></li>
+        </ul>
+      </nav>
+      <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+    </aside>
+
+    <main>
+      <section id="mental-model">
+        <h2>1. The correct mental model</h2>
+        <p class="lead">
+          A FastAPI worker normally runs an event loop. Each async request progresses until it reaches an awaitable
+          that is not ready. The loop then advances other requests. Async improves utilization during waiting. It does
+          not make the underlying database, model inference, JSON encoding, or computation intrinsically faster.
+        </p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart LR
+    C[Clients] --> P[Load balancer / proxy]
+    P --> W1[Uvicorn worker process]
+    P --> W2[Uvicorn worker process]
+    subgraph Worker 1
+      EL[Single event loop]
+      R1[Request A coroutine]
+      R2[Request B coroutine]
+      R3[Request C coroutine]
+      TP[Bounded thread pool]
+      EL --> R1
+      EL --> R2
+      EL --> R3
+      R2 -->|sync endpoint / dependency| TP
+    end
+    R1 -->|await| DB[(Database)]
+    R3 -->|await| API[Downstream API]
+    TP --> FS[(File or blocking SDK)]
+          </pre>
+        </div>
+
+        <div class="grid-3">
+          <div class="card">
+            <h3>Concurrency</h3>
+            <p>Multiple in-flight tasks make progress by yielding at await points. Best for I/O-heavy workloads.</p>
+          </div>
+          <div class="card">
+            <h3>Parallelism</h3>
+            <p>Multiple CPU cores or processes execute at the same time. Needed for sustained CPU-heavy work.</p>
+          </div>
+          <div class="card">
+            <h3>Queueing</h3>
+            <p>When demand exceeds any constrained resource, requests wait. This is the usual source of p95/p99 growth.</p>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>Core rule:</strong> an <code>async def</code> route is safe only when every potentially slow operation
+          inside it either yields with <code>await</code>, is intentionally offloaded, or is demonstrably short and bounded.
+        </div>
+      </section>
+
+      <section id="decision">
+        <h2>2. Choosing <code>def</code> versus <code>async def</code></h2>
+        <p class="lead">Choose based on the libraries called by the route, not on a blanket project convention.</p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart TD
+    A[Path operation or dependency] --> B{Does it perform potentially slow I/O?}
+    B -- No --> C{Is it CPU-heavy or long-running?}
+    C -- No --> D[async def is acceptable]
+    C -- Yes --> E[Move to process / worker system]
+    B -- Yes --> F{Does the library expose a real async API?}
+    F -- Yes --> G[Use async def and await it]
+    F -- No --> H{Can the whole callable be synchronous?}
+    H -- Yes --> I[Use def; FastAPI offloads it to thread pool]
+    H -- No --> J[Use anyio.to_thread.run_sync for the isolated blocking call]
+    J --> K[Bound concurrency and measure thread-pool wait]
+          </pre>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Work inside the route</th><th>Preferred declaration</th><th>Reason</th><th>Common mistake</th></tr></thead>
+            <tbody>
+              <tr><td>Async database driver, async HTTP client</td><td><code>async def</code></td><td>Waiting yields to the event loop.</td><td>Calling a sync SDK inside the async route.</td></tr>
+              <tr><td>Legacy blocking SDK or filesystem-heavy callable</td><td><code>def</code> or explicit thread offload</td><td>FastAPI/Starlette can run synchronous callables in a thread pool.</td><td>Using <code>async def</code> and directly calling blocking code.</td></tr>
+              <tr><td>Small in-memory validation or mapping</td><td>Either</td><td>Cost is short and bounded.</td><td>Micro-optimizing syntax instead of measuring downstream latency.</td></tr>
+              <tr><td>Image processing, large compression, ML inference, large parsing</td><td>Separate process/service</td><td>CPU work consumes the worker and may contend on the GIL or core.</td><td>Wrapping sustained CPU work in a thread and assuming it is solved.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="code-card">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code># Good: async-compatible dependency
+@app.get("/users/{user_id}")
+async def get_user(user_id: int, session: AsyncSession = Depends(get_session)):
+    return await session.get(User, user_id)
+
+# Good: fully synchronous endpoint for a blocking SDK
+@app.get("/legacy/{key}")
+def get_legacy(key: str):
+    return legacy_sdk.fetch(key)  # executed via the framework thread pool
+
+# Good: isolate a blocking call within an otherwise async flow
+from anyio import to_thread
+
+@app.get("/mixed/{key}")
+async def get_mixed(key: str):
+    item = await async_cache.get(key)
+    if item is None:
+        item = await to_thread.run_sync(legacy_sdk.fetch, key)
+    return item</code></pre>
+        </div>
+      </section>
+
+      <section id="caveats">
+        <h2>3. Async caveats that cause production incidents</h2>
+
+        <div class="grid-2">
+          <div class="card">
+            <span class="tag critical">Critical</span>
+            <h3>Blocking the event loop</h3>
+            <p><code>requests.get()</code>, sync DB drivers, <code>time.sleep()</code>, large local parsing, and blocking SDKs inside <code>async def</code> prevent that worker's loop from serving other requests.</p>
+          </div>
+          <div class="card">
+            <span class="tag critical">Critical</span>
+            <h3>Unbounded fan-out</h3>
+            <p>Creating hundreds or thousands of tasks can overwhelm sockets, downstream services, connection pools, memory, and retry systems.</p>
+          </div>
+          <div class="card">
+            <span class="tag high">High</span>
+            <h3>Thread-pool saturation</h3>
+            <p>Sync endpoints, sync dependencies, file handling, and explicit thread offloads may share the same AnyIO capacity limiter. More offloading can simply move the queue.</p>
+          </div>
+          <div class="card">
+            <span class="tag high">High</span>
+            <h3>Connection-pool mismatch</h3>
+            <p>Request concurrency greater than available HTTP or database connections causes pool waiting. Oversized pools can overload the downstream instead.</p>
+          </div>
+          <div class="card">
+            <span class="tag high">High</span>
+            <h3>Improper client lifecycle</h3>
+            <p>Creating an HTTP client or DB engine per request discards connection reuse and adds repeated handshakes, authentication, DNS, and setup cost.</p>
+          </div>
+          <div class="card">
+            <span class="tag high">High</span>
+            <h3>Unsafe shared sessions</h3>
+            <p>A mutable transaction/session object should not be used concurrently across tasks. Use a session per request or per independent transaction.</p>
+          </div>
+          <div class="card">
+            <span class="tag core">Core</span>
+            <h3>Cancellation swallowed</h3>
+            <p>Suppressing <code>CancelledError</code> can leave work running after clients disconnect or deadlines expire. Cleanup should occur, then cancellation should normally be re-raised.</p>
+          </div>
+          <div class="card">
+            <span class="tag core">Core</span>
+            <h3>Async generator cleanup</h3>
+            <p>Streaming responses, generators, and resource dependencies need deterministic cleanup. Client disconnects are normal control-flow events, not only errors.</p>
+          </div>
+          <div class="card">
+            <span class="tag core">Core</span>
+            <h3>Serial awaits disguised as async</h3>
+            <p>Three independent calls awaited sequentially still take approximately the sum of their latencies. Concurrency must be explicit and bounded.</p>
+          </div>
+          <div class="card">
+            <span class="tag core">Core</span>
+            <h3>Retries multiply load</h3>
+            <p>Retries without a deadline, jitter, idempotency, and attempt limits amplify downstream failures and consume the remaining latency budget.</p>
+          </div>
+          <div class="card">
+            <span class="tag core">Core</span>
+            <h3>Large response serialization</h3>
+            <p>Validation and JSON serialization are CPU work. Large payloads can dominate endpoint time even when all I/O is asynchronous.</p>
+          </div>
+          <div class="card">
+            <span class="tag core">Core</span>
+            <h3>Too many workers</h3>
+            <p>Each process owns memory and often its own pools. Multiplying workers can accidentally multiply database connections, caches, model copies, and startup work.</p>
+          </div>
+        </div>
+
+        <h3>Classic blocking anti-pattern</h3>
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+sequenceDiagram
+    participant A as Client A
+    participant L as Worker event loop
+    participant S as Blocking SDK
+    participant B as Client B
+    A->>L: GET /report
+    L->>S: blocking call inside async def
+    Note over L,S: Event loop cannot advance other coroutines
+    B->>L: GET /health
+    Note over B,L: Request waits despite being unrelated
+    S-->>L: result after 2 seconds
+    L-->>A: response
+    L-->>B: delayed health response
+          </pre>
+        </div>
+      </section>
+
+      <section id="latency">
+        <h2>4. Model latency as a budget and a queueing system</h2>
+        <p class="lead">
+          End-to-end latency includes more than handler execution. A route can have fast business logic and still be slow because it waits for a worker, thread token, socket, database connection, lock, rate limit, or downstream queue.
+        </p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart LR
+    A[Ingress queue] --> B[Middleware + auth]
+    B --> C[Application logic]
+    C --> D[DB pool wait]
+    D --> E[DB query]
+    C --> F[HTTP pool wait]
+    F --> G[Downstream call]
+    E --> H[Validation + serialization]
+    G --> H
+    H --> I[Network flush]
+    style A fill:#fff3e7,stroke:#b65a10
+    style D fill:#fff3e7,stroke:#b65a10
+    style F fill:#fff3e7,stroke:#b65a10
+          </pre>
+        </div>
+
+        <div class="callout warning">
+          <strong>Tail-latency principle:</strong> p99 often rises before CPU reaches 100% because a bounded pool or downstream resource has begun queueing. Measure wait time separately from service time.
+        </div>
+
+        <div class="grid-4">
+          <div class="card"><div class="metric">p50</div><div class="metric-label">Typical user experience</div></div>
+          <div class="card"><div class="metric">p95</div><div class="metric-label">Degraded path or mild contention</div></div>
+          <div class="card"><div class="metric">p99</div><div class="metric-label">Queueing, retries, and downstream variance</div></div>
+          <div class="card"><div class="metric">Max</div><div class="metric-label">Useful for diagnosis, not stable SLO design</div></div>
+        </div>
+
+        <h3>Recommended per-request timing dimensions</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Dimension</th><th>What it exposes</th><th>Action when high</th></tr></thead>
+            <tbody>
+              <tr><td>Queue or admission wait</td><td>Worker/concurrency capacity exceeded</td><td>Apply admission control, scale workers, or reduce service time.</td></tr>
+              <tr><td>Thread-token wait</td><td>Too many blocking/sync operations</td><td>Replace with async libraries or isolate and bound blocking work.</td></tr>
+              <tr><td>DB pool checkout wait</td><td>Pool saturation, leaked/long transactions</td><td>Shorten transaction scope, optimize query, then right-size pool.</td></tr>
+              <tr><td>HTTP pool wait</td><td>Connection cap or slow downstream</td><td>Reuse client, adjust limits carefully, cap request fan-out.</td></tr>
+              <tr><td>Downstream service time</td><td>Remote dependency is slow</td><td>Budget timeouts, cache, batch, degrade, or change dependency contract.</td></tr>
+              <tr><td>Serialization time</td><td>Large or complex response models</td><td>Reduce payload, paginate, precompute, stream, or use efficient encoding.</td></tr>
+              <tr><td>Event-loop lag</td><td>Blocking code or CPU pressure in loop</td><td>Profile loop, remove blocking calls, move CPU work out.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="priorities">
+        <h2>5. Where to focus first</h2>
+        <p class="lead">Optimize in the following order. This prevents cosmetic tuning from hiding structural bottlenecks.</p>
+
+        <div class="priority-step"><div class="priority-number">1</div><div><h3>Find event-loop blocking</h3><p>Search for sync network clients, sync DB drivers, <code>time.sleep</code>, filesystem operations, compression, parsing, and heavy transformations inside <code>async def</code>.</p></div></div>
+        <div class="priority-step"><div class="priority-number">2</div><div><h3>Reduce downstream work</h3><p>Eliminate unnecessary calls, avoid N+1 queries, batch reads, parallelize only independent operations, cache stable data, and return less data.</p></div></div>
+        <div class="priority-step"><div class="priority-number">3</div><div><h3>Reuse clients and pools</h3><p>Create HTTP clients, database engines, and other expensive transports once per worker during application lifespan.</p></div></div>
+        <div class="priority-step"><div class="priority-number">4</div><div><h3>Bound concurrency and queues</h3><p>Use semaphores, pool limits, ingress limits, queue limits, and per-tenant limits. Unlimited concurrency converts latency into outages.</p></div></div>
+        <div class="priority-step"><div class="priority-number">5</div><div><h3>Enforce deadlines</h3><p>Set an end-to-end deadline, derive tighter downstream timeouts, stop retrying when the remaining budget is insufficient, and propagate cancellation.</p></div></div>
+        <div class="priority-step"><div class="priority-number">6</div><div><h3>Optimize database and serialization</h3><p>Inspect query plans, indexes, lock waits, transaction scope, model validation, response shape, pagination, and encoding cost.</p></div></div>
+        <div class="priority-step"><div class="priority-number">7</div><div><h3>Scale processes after efficiency</h3><p>Add workers or replicas after verifying downstream capacity and per-process resource multiplication.</p></div></div>
+
+        <div class="callout success">
+          <strong>Decision rule:</strong> tune the resource whose queue grows first. Adding workers does not fix a saturated database, a slow dependency, or unbounded fan-out.
+        </div>
+      </section>
+
+      <section id="standards">
+        <h2>6. Production implementation standards</h2>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Standard</th><th>Required implementation</th><th>Failure prevented</th></tr></thead>
+            <tbody>
+              <tr><td>Library compatibility</td><td>Document whether every I/O dependency is async, sync-threaded, or externalized.</td><td>Hidden event-loop blocking.</td></tr>
+              <tr><td>Lifecycle ownership</td><td>Initialize shared clients/engines during lifespan; close them during shutdown.</td><td>Connection churn and leaked resources.</td></tr>
+              <tr><td>Bounded concurrency</td><td>Set limits for ingress, fan-out, HTTP pools, DB pools, thread offload, background queues, and payload size.</td><td>Memory growth and cascading overload.</td></tr>
+              <tr><td>Deadline propagation</td><td>Every remote operation has a timeout smaller than the request deadline.</td><td>Hung requests and retry storms.</td></tr>
+              <tr><td>Cancellation safety</td><td>Use context managers and <code>finally</code>; do not casually suppress cancellation.</td><td>Orphaned work and pool leaks.</td></tr>
+              <tr><td>Session isolation</td><td>One DB session per request/transaction; never share it across concurrent tasks.</td><td>Transaction corruption and race conditions.</td></tr>
+              <tr><td>Load shedding</td><td>Reject excess work early with a controlled response instead of accepting unlimited queues.</td><td>Latency collapse and OOM.</td></tr>
+              <tr><td>Retry governance</td><td>Retry only transient, idempotent operations; cap attempts; use jitter; obey budget.</td><td>Amplified dependency failures.</td></tr>
+              <tr><td>Observability</td><td>Trace pool wait, downstream duration, event-loop lag, retries, cancellations, status, and response size.</td><td>Unexplained tail latency.</td></tr>
+              <tr><td>Performance gates</td><td>Run concurrency tests in CI or pre-release with p95/p99 and error-rate thresholds.</td><td>Regressions escaping to production.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Lifespan-owned resources</h3>
+        <div class="code-card">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>from contextlib import asynccontextmanager
+from fastapi import FastAPI
+import httpx
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.http = httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=1.0, read=3.0, write=2.0, pool=0.5),
+        limits=httpx.Limits(
+            max_connections=100,
+            max_keepalive_connections=40,
+            keepalive_expiry=20.0,
+        ),
+    )
+
+    app.state.db_engine = create_async_engine(
+        settings.database_url,
+        pool_size=20,
+        max_overflow=10,
+        pool_timeout=1.0,
+        pool_pre_ping=True,
+    )
+    app.state.session_factory = async_sessionmaker(
+        app.state.db_engine,
+        expire_on_commit=False,
+    )
+
+    try:
+        yield
+    finally:
+        await app.state.http.aclose()
+        await app.state.db_engine.dispose()
+
+app = FastAPI(lifespan=lifespan)</code></pre>
+        </div>
+
+        <div class="callout warning">
+          Pool numbers are examples, not defaults for every system. Size them from measured concurrency, downstream limits, number of worker processes, and acceptable queue time.
+        </div>
+      </section>
+
+      <section id="http">
+        <h2>7. Downstream HTTP calls</h2>
+        <p class="lead">A shared async client provides connection pooling and avoids paying setup costs on every request.</p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart TD
+    R[Incoming requests] --> S{Fan-out semaphore}
+    S --> P{HTTP connection pool}
+    P --> D[Downstream service]
+    D --> P
+    P --> R
+    S -.excess waits or is rejected.-> Q[Bounded queue]
+    style S fill:#e9efff,stroke:#3157c8
+    style P fill:#e5f7f8,stroke:#087f8c
+    style Q fill:#fff3e7,stroke:#b65a10
+          </pre>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>Timeout layers</h3>
+            <p>Set connect, read, write, and pool-acquisition timeouts. A single generic timeout can obscure which resource is constrained.</p>
+          </div>
+          <div class="card">
+            <h3>Connection limits</h3>
+            <p>Keep limits aligned with downstream capacity. A high client limit can create a larger outage rather than lower latency.</p>
+          </div>
+          <div class="card">
+            <h3>Retries</h3>
+            <p>Retry only when the operation is safe and the failure is transient. Include exponential backoff, jitter, attempt cap, and deadline awareness.</p>
+          </div>
+          <div class="card">
+            <h3>Response handling</h3>
+            <p>For large payloads, stream or cap response size. Do not load unbounded remote content into memory.</p>
+          </div>
+        </div>
+
+        <div class="code-card">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>from fastapi import Request, HTTPException
+import httpx
+
+@app.get("/profile/{user_id}")
+async def profile(user_id: str, request: Request):
+    client: httpx.AsyncClient = request.app.state.http
+    try:
+        response = await client.get(f"/users/{user_id}")
+        response.raise_for_status()
+        return response.json()
+    except httpx.PoolTimeout as exc:
+        # Local capacity is exhausted. Retrying immediately is usually harmful.
+        raise HTTPException(503, "Dependency capacity unavailable") from exc
+    except (httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
+        raise HTTPException(504, "Dependency timed out") from exc
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(502, "Dependency returned an error") from exc</code></pre>
+        </div>
+      </section>
+
+      <section id="database">
+        <h2>8. Database access standards</h2>
+
+        <div class="grid-3">
+          <div class="card"><h3>One session per unit of work</h3><p>Open a session for a request or transaction and close it deterministically. Do not share one session across tasks.</p></div>
+          <div class="card"><h3>Short transaction scope</h3><p>Do not hold a connection while calling external services, waiting for user input, or performing unrelated computation.</p></div>
+          <div class="card"><h3>Pool wait is a signal</h3><p>A pool timeout is not automatically a reason to increase pool size. Check long queries, lock waits, leaked sessions, and database limits first.</p></div>
+        </div>
+
+        <div class="code-card">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>from collections.abc import AsyncIterator
+from fastapi import Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
+    factory = request.app.state.session_factory
+    async with factory() as session:
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+
+@app.post("/orders")
+async def create_order(payload: OrderCreate, session: AsyncSession = Depends(get_session)):
+    order = Order(**payload.model_dump())
+    session.add(order)
+    await session.commit()
+    await session.refresh(order)
+    return order</code></pre>
+        </div>
+
+        <h3>Do not make independent calls concurrently on the same session</h3>
+        <div class="code-card">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code># Avoid
+await asyncio.gather(
+    session.execute(query_a),
+    session.execute(query_b),
+)
+
+# Prefer one of these:
+# 1. Combine into one query.
+# 2. Execute sequentially in the same transaction.
+# 3. Use separate sessions only when operations are truly independent
+#    and extra database concurrency is justified and bounded.</code></pre>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Symptom</th><th>Likely cause</th><th>First investigation</th></tr></thead>
+            <tbody>
+              <tr><td>High pool checkout wait</td><td>Connections held too long</td><td>Transaction duration, missing close, remote call inside transaction.</td></tr>
+              <tr><td>DB CPU high</td><td>Inefficient or excessive queries</td><td>Query plans, indexes, N+1, pagination, repeated reads.</td></tr>
+              <tr><td>Lock wait high</td><td>Contention or transaction scope</td><td>Lock graph, update order, hot rows, isolation level.</td></tr>
+              <tr><td>Pool errors after scaling workers</td><td>Total connections multiplied</td><td><code>workers × pool_size + overflow</code> versus DB connection budget.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="fanout">
+        <h2>9. Parallel fan-out without overload</h2>
+        <p class="lead">Concurrency should be explicit, structured, and limited. The fastest design is often fewer calls, not more tasks.</p>
+
+        <div class="code-card">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>import asyncio
+
+FANOUT_LIMIT = 8
+fanout_sem = asyncio.Semaphore(FANOUT_LIMIT)
+
+async def guarded_fetch(client, url: str):
+    async with fanout_sem:
+        return await client.get(url)
+
+async def fetch_dashboard(client, urls: list[str]):
+    # Python 3.11+: structured concurrency cancels sibling tasks on failure.
+    results: list[object] = []
+    async with asyncio.TaskGroup() as group:
+        tasks = [group.create_task(guarded_fetch(client, url)) for url in urls]
+    for task in tasks:
+        results.append(task.result())
+    return results</code></pre>
+        </div>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart LR
+    A[Request] --> B{Can calls be combined?}
+    B -- Yes --> C[Batch / bulk API]
+    B -- No --> D{Are calls independent?}
+    D -- No --> E[Await sequentially]
+    D -- Yes --> F{Is concurrency bounded?}
+    F -- No --> G[Add semaphore / chunking]
+    F -- Yes --> H[TaskGroup / gather]
+    H --> I{Partial failure acceptable?}
+    I -- No --> J[Fail fast and cancel siblings]
+    I -- Yes --> K[Collect per-call results and errors]
+          </pre>
+        </div>
+
+        <div class="callout danger">
+          <strong>Avoid:</strong> <code>await asyncio.gather(*(call(x) for x in ten_thousand_items))</code>. This eagerly creates a large number of tasks and transfers overload to memory, pools, sockets, or the dependency.
+        </div>
+      </section>
+
+      <section id="timeouts">
+        <h2>10. Deadlines, timeouts, and cancellation</h2>
+        <p class="lead">A timeout is part of capacity control. It limits how long scarce resources remain occupied.</p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart TD
+    A[Request starts with deadline] --> B[Compute remaining budget]
+    B --> C[Assign smaller downstream timeout]
+    C --> D{Operation completes?}
+    D -- Yes --> E[Continue]
+    D -- No --> F[Cancel operation]
+    F --> G[Release connection / lock / file]
+    G --> H{Safe fallback exists?}
+    H -- Yes --> I[Return degraded result]
+    H -- No --> J[Return 504 / controlled error]
+    J --> K[Do not retry past deadline]
+          </pre>
+        </div>
+
+        <div class="code-card">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>import asyncio
+from fastapi import HTTPException
+
+async def build_response():
+    try:
+        async with asyncio.timeout(2.5):  # Python 3.11+
+            return await assemble_from_dependencies()
+    except TimeoutError as exc:
+        raise HTTPException(504, "Request deadline exceeded") from exc
+
+async def cancellable_operation():
+    resource = await acquire_resource()
+    try:
+        return await resource.do_work()
+    except asyncio.CancelledError:
+        # Add structured logging if useful, but normally propagate cancellation.
+        raise
+    finally:
+        await resource.close()</code></pre>
+        </div>
+
+        <div class="grid-2">
+          <div class="card"><h3>Budget hierarchy</h3><p>Ingress deadline &gt; handler budget &gt; downstream attempt timeout. Leave time for cleanup, serialization, and response transmission.</p></div>
+          <div class="card"><h3>Retry budget</h3><p>Before retrying, check whether enough time remains for backoff plus another attempt. Otherwise fail or degrade immediately.</p></div>
+        </div>
+      </section>
+
+      <section id="cpu">
+        <h2>11. CPU-bound work and the event loop</h2>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Work type</th><th>Recommended execution</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td>Tiny transformations and validation</td><td>Inline</td><td>Keep bounded and profile if payloads grow.</td></tr>
+              <tr><td>Blocking I/O using sync library</td><td>Thread pool</td><td>Bound thread concurrency; threads do not create infinite downstream capacity.</td></tr>
+              <tr><td>CPU-heavy pure Python</td><td>Process pool, task worker, or separate service</td><td>Protects event loop and enables multi-core execution.</td></tr>
+              <tr><td>Native library that releases GIL</td><td>Benchmark thread versus process</td><td>Behavior depends on the library and workload.</td></tr>
+              <tr><td>Long model inference</td><td>Dedicated inference service or bounded worker pool</td><td>Control batching, GPU/CPU concurrency, queue length, and timeout separately.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout warning">
+          <strong>Thread offloading is not a universal async fix.</strong> It protects the event loop from blocking, but the work still consumes memory, threads, CPU, and possibly downstream connections. The thread pool itself becomes a bounded queue.
+        </div>
+      </section>
+
+      <section id="background">
+        <h2>12. Background work: in-process versus durable</h2>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart TD
+    A[Work requested] --> B{Must it survive process restart?}
+    B -- Yes --> C[Durable queue + worker]
+    B -- No --> D{Is it small and bounded?}
+    D -- Yes --> E[In-process background task]
+    D -- No --> C
+    C --> F[Idempotency key]
+    C --> G[Retry / dead-letter policy]
+    C --> H[Status tracking]
+    E --> I[Still apply limits and observability]
+          </pre>
+        </div>
+
+        <div class="grid-2">
+          <div class="card"><h3>In-process task</h3><p>Suitable for best-effort, short operations where loss during restart is acceptable. It shares the web worker's resources.</p></div>
+          <div class="card"><h3>Durable worker</h3><p>Use for important, slow, retryable, CPU-heavy, or bursty work. Return a job identifier and expose status rather than holding the request open.</p></div>
+        </div>
+      </section>
+
+      <section id="deployment">
+        <h2>13. AKS target architecture and latency boundaries</h2>
+        <p class="lead">
+          The FastAPI process is only one stage in the request path. On AKS, tail latency can be introduced by the
+          edge, ingress, Kubernetes service routing, pod admission, event-loop or thread contention, Azure service
+          networking, database pools, and downstream throttling. Measure each boundary rather than treating pod CPU
+          as the complete performance signal.
+        </p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart LR
+    U[Clients] --> EDGE[Azure Front Door or Application Gateway WAF]
+    EDGE --> ING[AKS managed ingress or Gateway API]
+    ING --> SVC[ClusterIP Service]
+    SVC --> P1[FastAPI Pod A]
+    SVC --> P2[FastAPI Pod B]
+    SVC --> P3[FastAPI Pod C]
+    subgraph AKS[AKS user node pool]
+      ING
+      SVC
+      P1
+      P2
+      P3
+    end
+    P1 --> DB[(Azure SQL or PostgreSQL)]
+    P2 --> CACHE[(Azure Cache for Redis)]
+    P3 --> BUS[Service Bus]
+    P1 --> API[Internal or external APIs]
+    P1 -. Workload Identity .-> ENTRA[Microsoft Entra ID]
+    P2 -. mounted or fetched secrets .-> KV[Azure Key Vault]
+    P1 -. traces metrics logs .-> MON[Azure Monitor and Application Insights]
+          </pre>
+        </div>
+
+        <div class="grid-3">
+          <div class="card"><h3>North-south path</h3><p>Client, edge/WAF, load balancer, ingress, Service, and pod. Capture latency and status at both the edge and ingress.</p></div>
+          <div class="card"><h3>East-west path</h3><p>Pod-to-pod and pod-to-Azure-service traffic. DNS, SNAT, private endpoints, network policy, and TLS handshakes can dominate short requests.</p></div>
+          <div class="card"><h3>Capacity path</h3><p>HPA creates pods, the scheduler places them, and the cluster autoscaler adds nodes only when pods cannot be scheduled. These are separate control loops.</p></div>
+        </div>
+
+        <h3>Recommended platform decisions</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Decision</th><th>Default starting point</th><th>When to change it</th></tr></thead>
+            <tbody>
+              <tr><td>Cluster mode</td><td>Use the organization-standard AKS mode. In AKS Standard, explicitly configure workload identity, autoscaling, monitoring, and ingress.</td><td>Use AKS Automatic when its managed defaults and platform constraints match the workload.</td></tr>
+              <tr><td>Ingress</td><td>Use a managed AKS ingress path with TLS. Put Front Door or Application Gateway WAF ahead of it when global routing or WAF policy is required.</td><td>Use internal ingress for private APIs. Evaluate the managed Gateway API path for new long-lived platform standards.</td></tr>
+              <tr><td>Pod process model</td><td>One Uvicorn worker per container, multiple pod replicas.</td><td>Add multiple workers only after measuring memory, CPU, connection-pool multiplication, and shutdown behavior.</td></tr>
+              <tr><td>Identity</td><td>Microsoft Entra Workload ID with Azure SDK credentials.</td><td>Use another method only for a documented compatibility limitation.</td></tr>
+              <tr><td>Secrets</td><td>Key Vault through Workload ID, optionally using Secrets Store CSI for file-mounted material.</td><td>Use Kubernetes Secrets only when the threat model and operational controls permit it.</td></tr>
+              <tr><td>Telemetry</td><td>OpenTelemetry instrumentation plus Application Insights, Managed Prometheus, and Container Insights.</td><td>Use preview-only AKS application-monitoring paths only when preview risk is accepted.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout warning">
+          <strong>Ingress lifecycle note, August 2026:</strong> Microsoft documentation states that critical security
+          patch support for application-routing NGINX resources continues through November 2026. Do not create a new
+          multi-year ingress standard without reviewing the current managed Gateway API and migration guidance.
+        </div>
+      </section>
+
+      <section id="pod-model">
+        <h2>14. Pod sizing, Uvicorn workers, and connection budgets</h2>
+        <p class="lead">
+          Kubernetes already supplies process-level replication. For most async FastAPI APIs, begin with one server
+          process per pod so resource limits, health, termination, and autoscaling map cleanly to one runtime. Scale
+          pods before adding workers inside a pod.
+        </p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart TD
+    R[Incoming requests] --> SVC[Service load balancing]
+    SVC --> PA[Pod A: one event loop]
+    SVC --> PB[Pod B: one event loop]
+    SVC --> PC[Pod C: one event loop]
+    PA --> DBA[DB pool A]
+    PB --> DBB[DB pool B]
+    PC --> DBC[DB pool C]
+    DBA --> DB[(Database connection limit)]
+    DBB --> DB
+    DBC --> DB
+    HPA[HPA] -->|adds pods| PC
+    CA[Cluster autoscaler] -->|adds node capacity when pending| NODE[AKS node pool]
+    NODE --> PC
+          </pre>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>One worker per pod</h3>
+            <p>Clear CPU and memory accounting, smaller failure domain, simpler graceful shutdown, and predictable connection pools. This is the preferred baseline.</p>
+          </div>
+          <div class="card">
+            <h3>Multiple workers per pod</h3>
+            <p>Can improve CPU-core utilization for some workloads, but every worker duplicates the event loop, HTTP client, database pool, caches, and application memory.</p>
+          </div>
+        </div>
+
+        <h3>Capacity equations that must be reviewed</h3>
+        <div class="code-card">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code># Maximum theoretical database connections
+replicas × workers_per_pod × (pool_size + max_overflow)
+
+# Maximum HTTP sockets to one client pool, if each worker owns a client
+replicas × workers_per_pod × max_connections
+
+# Approximate API admission capacity
+replicas × workers_per_pod × per_worker_concurrency_limit
+
+# Keep explicit headroom for:
+# migrations, admin tools, failover, rolling surge pods, background workers,
+# database maintenance, and other services sharing the dependency.</code></pre>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Setting</th><th>AKS impact</th><th>Implementation standard</th></tr></thead>
+            <tbody>
+              <tr><td>CPU request</td><td>Scheduler placement and CPU-based HPA utilization denominator</td><td>Set from measured steady-state use. A badly low request makes HPA noisy; a badly high request wastes nodes and delays scheduling.</td></tr>
+              <tr><td>CPU limit</td><td>Can create throttling and p99 latency even when average CPU looks acceptable</td><td>Measure throttling. Avoid an arbitrarily tight limit for latency-sensitive services.</td></tr>
+              <tr><td>Memory request and limit</td><td>Scheduling, eviction risk, and OOMKill behavior</td><td>Include Python heap, workers, connection buffers, telemetry, large responses, and temporary serialization peaks.</td></tr>
+              <tr><td>Minimum replicas</td><td>Availability during node loss, rollout, and HPA reaction time</td><td>Use at least two for production availability; use additional replicas and zone spreading when the SLO requires it.</td></tr>
+              <tr><td>Topology spread</td><td>Reduces correlated loss on one node or zone</td><td>Ensure the pod labels exactly match the topology-spread selector.</td></tr>
+              <tr><td>Ephemeral storage</td><td>Logs, temporary files, upload buffering, and image layers can pressure nodes</td><td>Stream large payloads, bound temporary storage, and define an ephemeral-storage request/limit when material.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout">
+          <strong>Practical starting point, not a universal prescription:</strong> one Uvicorn worker, two or three pod
+          replicas, explicit requests and limits, bounded Uvicorn concurrency, and pool sizes calculated against the
+          maximum HPA replica count. Change one variable at a time under production-like load.
+        </div>
+      </section>
+
+      <section id="manifests">
+        <h2>15. Production-oriented AKS manifests</h2>
+        <p class="lead">
+          The manifests below demonstrate the controls that matter to async latency and reliability. Replace all
+          sample values with load-tested settings and use Helm, Kustomize, Bicep, Terraform, or GitOps to manage
+          environment-specific configuration.
+        </p>
+
+        <h3>Service account, Deployment, and Service</h3>
+        <div class="code-card">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fastapi-api
+  namespace: platform
+  annotations:
+    azure.workload.identity/client-id: "${AZURE_CLIENT_ID}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastapi-api
+  namespace: platform
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fastapi-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fastapi-api
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: fastapi-api
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: fastapi-api
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: fastapi-api
+      containers:
+        - name: api
+          image: myregistry.azurecr.io/fastapi-api@sha256:REPLACE_WITH_DIGEST
+          imagePullPolicy: IfNotPresent
+          args:
+            - uvicorn
+            - app.main:app
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            - --proxy-headers
+            - --timeout-keep-alive
+            - "5"
+            - --timeout-graceful-shutdown
+            - "35"
+            - --limit-concurrency
+            - "200"
+            - --backlog
+            - "256"
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: fastapi-api-config
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /health/startup
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 2
+            timeoutSeconds: 1
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 1
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 8"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastapi-api
+  namespace: platform
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: fastapi-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http</code></pre>
+        </div>
+
+        <div class="callout warning">
+          The <code>preStop</code> sleep is a simple endpoint-removal buffer and requires a shell in the image. For a
+          distroless image, use an application drain endpoint, a small lifecycle binary, or another tested mechanism.
+          The total preStop duration plus in-flight completion must fit inside <code>terminationGracePeriodSeconds</code>.
+        </div>
+
+        <h3>Ingress, HPA, and PodDisruptionBudget</h3>
+        <div class="code-card">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fastapi-api
+  namespace: platform
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "3"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
+spec:
+  ingressClassName: webapprouting.kubernetes.azure.com
+  tls:
+    - hosts: ["api.example.com"]
+      secretName: api-example-com-tls
+  rules:
+    - host: api.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fastapi-api
+                port:
+                  name: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fastapi-api
+  namespace: platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fastapi-api
+  minReplicas: 3
+  maxReplicas: 20
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+        - type: Pods
+          value: 4
+          periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fastapi-api
+  namespace: platform
+spec:
+  minAvailable: 2
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fastapi-api</code></pre>
+        </div>
+
+        <div class="callout">
+          <strong>Probe separation:</strong> startup answers “has initialization completed,” readiness answers “should
+          this pod receive traffic,” and liveness answers “is the process irrecoverably stuck.” Do not make liveness
+          depend on a database or remote API; a dependency outage should not restart every pod.
+        </div>
+      </section>
+
+      <section id="autoscaling">
+        <h2>16. Autoscaling an async API without scaling the wrong signal</h2>
+        <p class="lead">
+          An I/O-heavy async API can be saturated while CPU remains moderate. CPU-only HPA is a useful baseline, but
+          it may not detect event-loop delay, active-request pressure, connection-pool wait, or downstream throttling.
+        </p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+sequenceDiagram
+    participant Load as Request load
+    participant Pod as FastAPI pods
+    participant HPA as HPA or KEDA
+    participant Sched as Kubernetes scheduler
+    participant CA as AKS cluster autoscaler
+    participant Nodes as Node pool
+    Load->>Pod: concurrency rises
+    Pod-->>HPA: CPU or custom metric rises
+    HPA->>Sched: request more replicas
+    alt node has capacity
+      Sched->>Pod: place new pod
+    else pod remains Pending
+      Sched-->>CA: unschedulable pod
+      CA->>Nodes: add node capacity
+      Nodes-->>Sched: node becomes Ready
+      Sched->>Pod: place new pod
+    end
+          </pre>
+        </div>
+
+        <h3>Signal selection</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Signal</th><th>Useful for</th><th>Caveat</th></tr></thead>
+            <tbody>
+              <tr><td>CPU utilization</td><td>CPU-heavy serialization, validation, compression, and mixed workloads</td><td>Can stay low while an async service is blocked on DB/HTTP pools or downstream latency.</td></tr>
+              <tr><td>Active requests or admitted concurrency</td><td>Request-driven async APIs with a known safe per-pod concurrency</td><td>Requires application or ingress metrics and a custom-metrics path.</td></tr>
+              <tr><td>Queue depth and oldest-message age</td><td>Service Bus workers and durable background processing</td><td>Use KEDA for event-driven workers; do not hold synchronous HTTP requests open for queue processing.</td></tr>
+              <tr><td>Event-loop lag</td><td>Detecting blocking code or CPU contention</td><td>Excellent alert and diagnostic signal; use cautiously as a direct autoscaling metric.</td></tr>
+              <tr><td>DB/HTTP pool wait</td><td>Finding the true saturation point</td><td>Scaling pods can make dependency exhaustion worse. Treat rising wait as a reason to cap admission or fix downstream capacity.</td></tr>
+              <tr><td>p95/p99 latency</td><td>SLO monitoring</td><td>Latency-based scaling is reactive and can oscillate. Prefer leading signals such as concurrency or queue depth.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>AKS scaling standards</h3>
+        <ol>
+          <li>Set resource requests before enabling CPU HPA; HPA utilization is calculated relative to requests.</li>
+          <li>Keep a minimum replica buffer for sudden traffic because pod and node scale-out are not instantaneous.</li>
+          <li>Enable and tune the AKS cluster autoscaler or node autoprovisioning so HPA-created pods can be scheduled.</li>
+          <li>Size all DB and HTTP pools against <em>maxReplicas</em>, rolling-surge pods, and every worker process.</li>
+          <li>Use a startup probe that remains false through import, model loading, migrations checks, and other startup CPU spikes so HPA does not learn from a half-ready pod.</li>
+          <li>Use a slow scale-down stabilization window to avoid connection churn and repeated cold starts.</li>
+          <li>Set a hard application admission limit. Autoscaling should complement backpressure, not replace it.</li>
+        </ol>
+
+        <div class="callout danger">
+          <strong>Do not scale through dependency collapse.</strong> If database checkout wait or downstream 429/503
+          rates are already rising, additional pods can multiply connections and retries. First cap concurrency,
+          reduce fan-out, honor retry-after behavior, or expand the dependency under an explicit capacity plan.
+        </div>
+      </section>
+
+      <section id="ingress-lifecycle">
+        <h2>17. Ingress timeouts, health probes, and graceful shutdown</h2>
+        <p class="lead">
+          A production request has multiple clocks. The outer infrastructure timeout must be longer than the
+          application deadline, and the application deadline must leave time for cancellation, cleanup, and a
+          controlled response.
+        </p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart LR
+    C[Client timeout 35s] --> E[Edge timeout 34s]
+    E --> I[Ingress timeout 30s]
+    I --> A[Application deadline 25s]
+    A --> D1[DB budget]
+    A --> D2[HTTP budget]
+    A --> S[Serialization and response budget]
+    D1 --> X[Cancel and clean up before 25s]
+    D2 --> X
+    S --> X
+          </pre>
+        </div>
+
+        <h3>Timeout hierarchy</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Layer</th><th>Standard</th><th>Failure if reversed</th></tr></thead>
+            <tbody>
+              <tr><td>Client and edge</td><td>Longer than ingress, with retry behavior documented</td><td>Client gives up while AKS continues expensive work.</td></tr>
+              <tr><td>Ingress</td><td>Longer than application deadline but bounded</td><td>Ingress emits 504 before the application can return a controlled error.</td></tr>
+              <tr><td>Application</td><td>One end-to-end deadline per request</td><td>Independent downstream timeouts add up beyond the infrastructure limit.</td></tr>
+              <tr><td>Downstreams</td><td>Budgets derived from remaining application time</td><td>A late dependency consumes the entire request and prevents cleanup.</td></tr>
+              <tr><td>Long work</td><td>Return 202 and use Service Bus or another durable job system</td><td>Long open connections consume ingress, pod, and downstream capacity.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Termination flow during rollout or node drain</h3>
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+sequenceDiagram
+    participant K as Kubernetes
+    participant EP as Service endpoints
+    participant P as FastAPI pod
+    participant U as Uvicorn
+    K->>P: mark pod Terminating and run preStop
+    K->>EP: remove pod from routable endpoints
+    P->>P: wait short drain buffer
+    K->>U: send SIGTERM
+    U->>U: stop accepting new requests
+    U->>U: await in-flight requests up to graceful timeout
+    U->>P: run lifespan shutdown and close pools
+    K->>P: SIGKILL only if grace period expires
+          </pre>
+        </div>
+
+        <div class="grid-2">
+          <div class="card"><h3>Readiness</h3><p>False until clients, configuration, and required startup state are ready. Return false during deliberate drain when the implementation supports it.</p></div>
+          <div class="card"><h3>Liveness</h3><p>Cheap, local, and independent of remote dependencies. It should detect a process that cannot recover without restart.</p></div>
+          <div class="card"><h3>Startup</h3><p>Protects slow initialization from premature liveness failures and keeps warming pods out of HPA readiness calculations.</p></div>
+          <div class="card"><h3>Grace period</h3><p>Must exceed the drain buffer plus the maximum accepted request deadline plus resource cleanup margin.</p></div>
+        </div>
+
+        <div class="callout warning">
+          Configure proxy headers only when the request comes through trusted proxies. Do not accept arbitrary
+          forwarded headers from untrusted networks, because client IP and scheme information can be spoofed.
+        </div>
+      </section>
+
+      <section id="azure-platform">
+        <h2>18. Azure identity, secrets, networking, and dependency access</h2>
+
+        <div class="grid-2">
+          <div class="card"><h3>Workload Identity</h3><p>Bind a Kubernetes service account to a Microsoft Entra identity. Use <code>DefaultAzureCredential</code> or the relevant Azure SDK credential chain instead of client secrets in environment variables.</p></div>
+          <div class="card"><h3>Key Vault</h3><p>Fetch secrets through the Azure SDK or mount them with the Secrets Store CSI Driver. Plan secret rotation and application reload behavior explicitly.</p></div>
+          <div class="card"><h3>Private connectivity</h3><p>Use private endpoints and private DNS where required. Validate DNS resolution, routing, firewall rules, and egress paths from the pod network, not only from a developer laptop.</p></div>
+          <div class="card"><h3>Egress capacity</h3><p>High outbound concurrency can exhaust SNAT or downstream quotas. Reuse connections, prefer private connectivity, and use a planned NAT or firewall architecture.</p></div>
+        </div>
+
+        <h3>Key Vault CSI example using Workload Identity</h3>
+        <div class="code-card">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: fastapi-keyvault
+  namespace: platform
+spec:
+  provider: azure
+  parameters:
+    usePodIdentity: "false"
+    clientID: "${AZURE_CLIENT_ID}"
+    keyvaultName: "${KEY_VAULT_NAME}"
+    tenantId: "${AZURE_TENANT_ID}"
+    objects: |
+      array:
+        - |
+          objectName: database-url
+          objectType: secret
+        - |
+          objectName: applicationinsights-connection-string
+          objectType: secret
+---
+# Add to the Deployment pod spec
+volumes:
+  - name: keyvault-secrets
+    csi:
+      driver: secrets-store.csi.k8s.io
+      readOnly: true
+      volumeAttributes:
+        secretProviderClass: fastapi-keyvault
+containers:
+  - name: api
+    volumeMounts:
+      - name: keyvault-secrets
+        mountPath: /mnt/secrets-store
+        readOnly: true</code></pre>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Area</th><th>Production standard</th><th>Latency or reliability caveat</th></tr></thead>
+            <tbody>
+              <tr><td>Azure SDK clients</td><td>Create reusable clients during lifespan when the SDK supports it.</td><td>Per-request credential discovery and TLS setup add latency.</td></tr>
+              <tr><td>Credential acquisition</td><td>Use Workload Identity and allow token caching.</td><td>Incorrect identity configuration often appears as intermittent startup or first-request latency.</td></tr>
+              <tr><td>Secret rotation</td><td>Watch mounted files or restart pods after rotation, according to the application's behavior.</td><td>CSI can rotate a file, but the process may continue using an old in-memory value.</td></tr>
+              <tr><td>NetworkPolicy</td><td>Default deny where feasible, then allow DNS, ingress, telemetry, and required dependencies.</td><td>Missing DNS or telemetry egress rules create confusing timeout symptoms.</td></tr>
+              <tr><td>Database access</td><td>Use private DNS and connection pooling; measure DNS, connect, TLS, authentication, checkout, and query phases.</td><td>A single “DB latency” metric hides the actual stage causing delay.</td></tr>
+              <tr><td>Service Bus workers</td><td>Separate worker Deployment and KEDA scaling from the synchronous API Deployment.</td><td>Sharing web pods with bursty queue work increases event-loop and CPU variance.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="observability">
+        <h2>19. AKS observability that identifies the first saturated queue</h2>
+        <p class="lead">
+          Combine application telemetry with Kubernetes, node, ingress, and Azure dependency telemetry. A request
+          trace without pod resource data misses throttling; pod CPU without pool metrics misses async saturation.
+        </p>
+
+        <div class="mermaid-wrap">
+          <pre class="mermaid">
+flowchart LR
+    APP[FastAPI OpenTelemetry] --> AI[Application Insights]
+    POD[Pod and kube-state metrics] --> PROM[Azure Managed Prometheus]
+    NODE[Node and container logs] --> CI[Container Insights]
+    ING[Ingress metrics and logs] --> PROM
+    AI --> WB[Workbooks and tracing]
+    PROM --> G[Azure Managed Grafana]
+    CI --> WB
+    G --> D{Which boundary saturates first?}
+    WB --> D
+    D --> LOOP[Event loop or CPU]
+    D --> POOL[DB or HTTP pool]
+    D --> INGQ[Ingress or admission]
+    D --> NODEQ[Pending pods or node pressure]
+    D --> DEP[Azure or external dependency]
+          </pre>
+        </div>
+
+        <h3>Telemetry layers</h3>
+        <div class="grid-3">
+          <div class="card"><h3>Application Insights</h3><p>Distributed traces, request and dependency duration, exceptions, custom events, and correlation across services.</p></div>
+          <div class="card"><h3>Managed Prometheus</h3><p>Application metrics, ingress metrics, kube-state metrics, HPA state, pod scheduling, and long-term operational dashboards.</p></div>
+          <div class="card"><h3>Container Insights</h3><p>Container logs, inventory, restarts, node and pod views, and operational diagnosis of the AKS data plane.</p></div>
+        </div>
+
+        <h3>Minimum metric set</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Layer</th><th>Required metrics</th><th>Interpretation</th></tr></thead>
+            <tbody>
+              <tr><td>HTTP</td><td>RPS, active requests, admission rejects, p50/p95/p99, 4xx/5xx, disconnects, payload bytes</td><td>Separates demand, queueing, errors, and response-size effects.</td></tr>
+              <tr><td>Python runtime</td><td>Event-loop lag, task count, thread-limiter use, process CPU, RSS, GC pauses where material</td><td>Finds blocking code, CPU contention, and memory growth.</td></tr>
+              <tr><td>Container and pod</td><td>CPU throttling, working set, OOMKill, restart count, readiness, pod age</td><td>Shows whether Kubernetes constraints are causing latency.</td></tr>
+              <tr><td>Scheduling and nodes</td><td>Pending pods, unschedulable reasons, node CPU/memory pressure, allocatable versus requested, autoscaler events</td><td>Shows why HPA replicas are not becoming usable capacity.</td></tr>
+              <tr><td>Ingress</td><td>Request duration, upstream response time, 499/502/503/504, active connections, TLS and connection errors</td><td>Separates client cancellation, pod failure, timeout, and capacity errors.</td></tr>
+              <tr><td>Database</td><td>Pool checkout wait, active/idle connections, query duration, lock wait, throttling, failed connects</td><td>Prevents “scale more pods” from worsening database exhaustion.</td></tr>
+              <tr><td>Downstream HTTP</td><td>DNS/connect/TLS/TTFB duration, pool wait, timeout type, retries, 429/5xx</td><td>Identifies network versus application delay and retry amplification.</td></tr>
+              <tr><td>Autoscaling</td><td>Current/desired replicas, maxed-out duration, scaling events, time from scale decision to Ready pod</td><td>Measures whether the control loops are fast enough for the traffic shape.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Azure Monitor OpenTelemetry initialization</h3>
+        <div class="code-card">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>import os
+import fastapi
+from azure.monitor.opentelemetry import configure_azure_monitor
+
+# Configure telemetry before constructing FastAPI objects and before importing
+# modules that create instrumented clients.
+configure_azure_monitor(
+    connection_string=os.environ["APPLICATIONINSIGHTS_CONNECTION_STRING"]
+)
+
+app = fastapi.FastAPI()</code></pre>
+        </div>
+
+        <div class="callout warning">
+          Microsoft currently labels some AKS-integrated OTLP onboarding and Python autoinstrumentation experiences as
+          Preview. For production, use a telemetry path whose support level matches the workload's risk requirements,
+          and keep application behavior independent of telemetry availability.
+        </div>
+
+        <h3>Alert on symptoms and causes</h3>
+        <div class="grid-2">
+          <div class="card"><h3>SLO alerts</h3><p>Error-budget burn, p99 latency, availability, and endpoint-specific failure rate. These indicate user impact.</p></div>
+          <div class="card"><h3>Cause alerts</h3><p>Event-loop lag, CPU throttling, pool wait, pending pods, HPA at max, ingress 504, OOMKill, node pressure, and downstream throttling.</p></div>
+        </div>
+      </section>
+
+      <section id="testing">
+        <h2>20. AKS performance testing and safe rollout</h2>
+        <p class="lead">
+          Test through the same edge and ingress path used in production, and separately test the pod service from
+          inside the virtual network. The difference reveals edge, TLS, ingress, DNS, and networking overhead.
+        </p>
+
+        <div class="grid-2">
+          <div class="card"><h3>Pod baseline</h3><p>Fixed replicas, autoscaling disabled, one worker per pod. Establish service time, safe concurrency, memory, CPU, and pool behavior.</p></div>
+          <div class="card"><h3>Ingress baseline</h3><p>Repeat through the public or private ingress. Compare TLS, proxy, request-size, keep-alive, and upstream timing.</p></div>
+          <div class="card"><h3>Autoscaling test</h3><p>Start at minimum replicas, apply step and burst traffic, and measure time to HPA decision, pod scheduling, startup readiness, and useful capacity.</p></div>
+          <div class="card"><h3>Failure test</h3><p>Inject slow DB/API calls, 429/503 responses, DNS failure, node drain, pod termination, and Key Vault or telemetry unavailability.</p></div>
+        </div>
+
+        <h3>Acceptance sequence</h3>
+        <ol>
+          <li>Run correctness and cancellation tests for every endpoint before load testing.</li>
+          <li>Find the per-pod concurrency knee where throughput stops scaling linearly or p99 rises sharply.</li>
+          <li>Set Uvicorn admission, HTTP pools, DB pools, and HPA targets below that knee.</li>
+          <li>Test at <code>minReplicas</code>, normal replicas, <code>maxReplicas</code>, and during one rolling-surge pod.</li>
+          <li>Verify that HPA scale-out does not exceed database, cache, API, SNAT, or license quotas.</li>
+          <li>Drain one pod under load and confirm no material error spike and no requests exceed the graceful-shutdown budget.</li>
+          <li>Drain one node and verify topology spreading, PDB behavior, pending-pod duration, and cluster-autoscaler recovery.</li>
+          <li>Run a soak test long enough to expose connection leaks, task leaks, file growth, DNS issues, and memory fragmentation.</li>
+        </ol>
+
+        <h3>Rollout standards</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Control</th><th>Standard</th><th>Reason</th></tr></thead>
+            <tbody>
+              <tr><td>Image reference</td><td>Immutable tag or digest; never deploy <code>latest</code></td><td>Enables deterministic rollback and auditability.</td></tr>
+              <tr><td>Rolling strategy</td><td><code>maxUnavailable: 0</code> and bounded surge for latency-sensitive APIs</td><td>Preserves capacity while avoiding an uncontrolled connection surge.</td></tr>
+              <tr><td>Readiness gate</td><td>Do not route until initialization and required local state are complete</td><td>Prevents cold or broken pods from receiving production traffic.</td></tr>
+              <tr><td>Database changes</td><td>Backward-compatible expand-and-contract migrations, run separately from pod startup</td><td>Avoids every pod racing to migrate and blocking readiness.</td></tr>
+              <tr><td>Canary</td><td>Use a small traffic slice for material runtime, dependency, or schema changes</td><td>Detects latency and pool regressions before full rollout.</td></tr>
+              <tr><td>Rollback</td><td>Automated or one-command rollback with image and configuration version recorded</td><td>Reduces time under a bad deployment.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout success">
+          <strong>Pass condition:</strong> the API remains within its latency and error SLO during burst traffic, pod
+          rollout, one pod loss, and one node drain; overload remains bounded; and the service recovers without manual
+          pod restarts after dependencies return to normal.
+        </div>
+      </section>
+
+      <section id="reference">
+        <h2>21. AKS-ready FastAPI service skeleton</h2>
+        <p class="lead">
+          This skeleton combines shared client lifecycle, readiness state, explicit health endpoints, bounded fan-out,
+          deadlines, and controlled error translation. The values are illustrative and must be derived from SLOs and
+          load tests.
+        </p>
+
+        <div class="code-card">
+          <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          <pre><code>import asyncio
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import fastapi
+import httpx
+from azure.monitor.opentelemetry import configure_azure_monitor
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+# Initialize telemetry before constructing FastAPI objects.
+if connection_string := os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    configure_azure_monitor(connection_string=connection_string)
+
+FANOUT_LIMIT = int(os.getenv("FANOUT_LIMIT", "8"))
+fanout_sem = asyncio.Semaphore(FANOUT_LIMIT)
+
+@asynccontextmanager
+async def lifespan(app: fastapi.FastAPI):
+    app.state.started = False
+    app.state.ready = False
+
+    http = httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=1.0, read=2.0, write=2.0, pool=0.25),
+        limits=httpx.Limits(
+            max_connections=int(os.getenv("HTTP_MAX_CONNECTIONS", "80")),
+            max_keepalive_connections=int(os.getenv("HTTP_KEEPALIVE_CONNECTIONS", "30")),
+        ),
+    )
+    engine = create_async_engine(
+        os.environ["DATABASE_URL"],
+        pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
+        max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "2")),
+        pool_timeout=float(os.getenv("DB_POOL_TIMEOUT_SECONDS", "0.75")),
+        pool_pre_ping=True,
+    )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    app.state.http = http
+    app.state.engine = engine
+    app.state.session_factory = session_factory
+    app.state.started = True
+    app.state.ready = True
+
+    try:
+        yield
+    finally:
+        # Uvicorn has stopped accepting new work and is completing graceful shutdown.
+        app.state.ready = False
+        await http.aclose()
+        await engine.dispose()
+
+app = fastapi.FastAPI(lifespan=lifespan)
+
+@app.get("/health/live", include_in_schema=False)
+async def live() -> dict[str, str]:
+    return {"status": "alive"}
+
+@app.get("/health/startup", include_in_schema=False)
+async def startup(request: fastapi.Request) -> dict[str, str]:
+    if not request.app.state.started:
+        raise fastapi.HTTPException(status_code=503, detail="starting")
+    return {"status": "started"}
+
+@app.get("/health/ready", include_in_schema=False)
+async def ready(request: fastapi.Request) -> dict[str, str]:
+    if not request.app.state.ready:
+        raise fastapi.HTTPException(status_code=503, detail="not ready")
+    return {"status": "ready"}
+
+async def get_session(request: fastapi.Request) -> AsyncIterator[AsyncSession]:
+    async with request.app.state.session_factory() as session:
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+
+async def limited_get(client: httpx.AsyncClient, url: str) -> dict:
+    async with fanout_sem:
+        response = await client.get(url)
+        response.raise_for_status()
+        return response.json()
+
+@app.get("/aggregate/{entity_id}")
+async def aggregate(
+    entity_id: str,
+    request: fastapi.Request,
+    session: AsyncSession = fastapi.Depends(get_session),
+):
+    client: httpx.AsyncClient = request.app.state.http
+
+    try:
+        async with asyncio.timeout(2.8):
+            db_entity = await session.get(Entity, entity_id)
+            if db_entity is None:
+                raise fastapi.HTTPException(404, "Entity not found")
+
+            async with asyncio.TaskGroup() as group:
+                profile_task = group.create_task(
+                    limited_get(client, f"https://profile.internal/{entity_id}")
+                )
+                score_task = group.create_task(
+                    limited_get(client, f"https://score.internal/{entity_id}")
+                )
+
+            return {
+                "entity": EntityOut.model_validate(db_entity),
+                "profile": profile_task.result(),
+                "score": score_task.result(),
+            }
+    except TimeoutError as exc:
+        raise fastapi.HTTPException(504, "Request deadline exceeded") from exc
+    except httpx.PoolTimeout as exc:
+        raise fastapi.HTTPException(503, "Downstream client saturated") from exc
+    except httpx.TimeoutException as exc:
+        raise fastapi.HTTPException(504, "Downstream timed out") from exc
+    except httpx.HTTPStatusError as exc:
+        raise fastapi.HTTPException(502, "Downstream failed") from exc</code></pre>
+        </div>
+
+        <div class="callout">
+          Do not run schema migrations in every pod's lifespan. Use a controlled deployment job or pipeline step and
+          apply backward-compatible database changes so old and new pods can coexist during a rolling update.
+        </div>
+      </section>
+
+      <section id="checklist">
+        <h2>22. AKS architecture and code-review checklist</h2>
+
+        <details open><summary>FastAPI and event-loop safety</summary>
+          <ul class="checklist">
+            <li>No blocking network, database, filesystem, sleep, or SDK call runs directly inside <code>async def</code>.</li>
+            <li>CPU-heavy work is moved to a separate worker, process, or inference service.</li>
+            <li>Fan-out, thread offload, HTTP connections, DB connections, retries, payloads, and deadlines are bounded.</li>
+            <li>HTTP clients and database engines are created once per worker process during lifespan.</li>
+          </ul>
+        </details>
+
+        <details><summary>Pod and process model</summary>
+          <ul class="checklist">
+            <li>One Uvicorn worker per pod is the measured default, or multiple workers have documented benchmark evidence.</li>
+            <li>CPU, memory, and ephemeral-storage requests and limits are based on load and soak tests.</li>
+            <li>Connection budgets include max HPA replicas, worker count, max overflow, and rolling-surge pods.</li>
+            <li>Minimum replicas and topology spread meet the availability target.</li>
+            <li>Images run as non-root with dropped capabilities and no unnecessary write access.</li>
+          </ul>
+        </details>
+
+        <details><summary>Health and termination</summary>
+          <ul class="checklist">
+            <li>Startup, readiness, and liveness probes have distinct meanings.</li>
+            <li>Liveness does not fail because a remote database or API is unavailable.</li>
+            <li>Readiness remains false until initialization is complete.</li>
+            <li>PreStop, endpoint removal, Uvicorn graceful timeout, and Kubernetes termination grace are load-tested together.</li>
+            <li>PodDisruptionBudget and rolling-update settings preserve required capacity.</li>
+          </ul>
+        </details>
+
+        <details><summary>Autoscaling and backpressure</summary>
+          <ul class="checklist">
+            <li>HPA targets use valid resource requests and a signal aligned to the actual bottleneck.</li>
+            <li>Cluster autoscaler or node autoprovisioning can schedule HPA-created pods.</li>
+            <li>HPA scale-down stabilization prevents churn.</li>
+            <li>The API rejects overload predictably before memory, thread pools, or downstream pools collapse.</li>
+            <li>Queue workers use a separate Deployment and event-driven scaling where appropriate.</li>
+          </ul>
+        </details>
+
+        <details><summary>Ingress and networking</summary>
+          <ul class="checklist">
+            <li>Ingress choice and support lifecycle are documented.</li>
+            <li>Client, edge, ingress, application, and downstream timeout hierarchy is consistent.</li>
+            <li>TLS, body-size limits, keep-alive, streaming, WebSocket, and forwarded-header requirements are explicit.</li>
+            <li>Private DNS, private endpoints, egress NAT/firewall, SNAT capacity, and network policy are tested from pods.</li>
+            <li>Ingress 499/502/503/504 metrics are correlated with application traces.</li>
+          </ul>
+        </details>
+
+        <details><summary>Azure identity and secrets</summary>
+          <ul class="checklist">
+            <li>Pods use Microsoft Entra Workload ID rather than embedded client secrets.</li>
+            <li>Key Vault access follows least privilege and secret rotation behavior is tested.</li>
+            <li>Mounted secret changes are reloaded or trigger a controlled pod restart.</li>
+            <li>Telemetry or credential-provider failure cannot block the core request path indefinitely.</li>
+          </ul>
+        </details>
+
+        <details><summary>Observability and acceptance</summary>
+          <ul class="checklist">
+            <li>Application traces include pod, namespace, node, version, request ID, and dependency correlation.</li>
+            <li>Dashboards include event-loop lag, CPU throttling, pool wait, pending pods, HPA status, ingress errors, and dependency throttling.</li>
+            <li>Alerts pair user-impact SLOs with cause signals.</li>
+            <li>Load tests run through ingress and directly inside the network.</li>
+            <li>Acceptance includes burst, soak, rolling update, pod drain, node drain, and slow-dependency scenarios.</li>
+          </ul>
+        </details>
+      </section>
+    </main>
+  </div>
+
+  <footer>
+    <strong>Primary references</strong>
+    <ul>
+      <li><a href="https://fastapi.tiangolo.com/async/">FastAPI: Concurrency and async/await</a></li>
+      <li><a href="https://www.starlette.io/threadpool/">Starlette: Thread Pool</a></li>
+      <li><a href="https://docs.python.org/3/library/asyncio-task.html">Python: Coroutines and Tasks</a></li>
+      <li><a href="https://www.python-httpx.org/advanced/timeouts/">HTTPX: Timeouts</a></li>
+      <li><a href="https://www.python-httpx.org/advanced/resource-limits/">HTTPX: Resource Limits</a></li>
+      <li><a href="https://docs.sqlalchemy.org/en/latest/orm/extensions/asyncio.html">SQLAlchemy: AsyncIO</a></li>
+      <li><a href="https://www.uvicorn.org/deployment/">Uvicorn: Deployment</a></li>
+      <li><a href="https://learn.microsoft.com/azure/aks/best-practices-app-cluster-reliability">AKS: Deployment and reliability practices</a></li>
+      <li><a href="https://learn.microsoft.com/azure/aks/best-practices-performance-scale">AKS: Performance and scaling practices</a></li>
+      <li><a href="https://learn.microsoft.com/azure/aks/app-routing">AKS: Managed application routing</a></li>
+      <li><a href="https://learn.microsoft.com/azure/aks/workload-identity-overview">AKS: Microsoft Entra Workload ID</a></li>
+      <li><a href="https://learn.microsoft.com/azure/aks/csi-secrets-store-driver">AKS: Key Vault Secrets Store CSI Driver</a></li>
+      <li><a href="https://learn.microsoft.com/azure/azure-monitor/app/opentelemetry-enable">Azure Monitor: OpenTelemetry</a></li>
+      <li><a href="https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/">Kubernetes: Horizontal Pod Autoscaling</a></li>
+      <li><a href="https://kubernetes.io/docs/concepts/workloads/pods/disruptions/">Kubernetes: Disruptions and PDBs</a></li>
+      <li><a href="https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/">Kubernetes: Topology spread constraints</a></li>
+    </ul>
+    <p>AKS-specific revision prepared August 2, 2026. Treat all capacity values as examples and validate current Azure feature support, CLI syntax, ingress lifecycle, and Kubernetes version compatibility before implementation.</p>
+  </footer>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    securityLevel: 'loose',
+    flowchart: { htmlLabels: true, curve: 'basis' },
+    themeVariables: {
+      primaryColor: '#e9efff',
+      primaryTextColor: '#162033',
+      primaryBorderColor: '#3157c8',
+      lineColor: '#67758c',
+      secondaryColor: '#e5f7f8',
+      tertiaryColor: '#fff3e7',
+      clusterBkg: '#f8fafc',
+      clusterBorder: '#cbd7e6',
+      fontFamily: 'Inter, system-ui, sans-serif'
+    }
+  });
+
+  function copyCode(button) {
+    const code = button.nextElementSibling.innerText;
+    navigator.clipboard.writeText(code).then(() => {
+      const prior = button.innerText;
+      button.innerText = 'Copied';
+      setTimeout(() => button.innerText = prior, 1200);
+    });
+  }
+</script>
+</body>
+</html>
