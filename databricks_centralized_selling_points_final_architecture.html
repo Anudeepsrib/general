@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Databricks Centralized Selling-Points Table | Final Enterprise Design</title>
+  <meta name="description" content="Final Databricks-only architecture for JSON-defined transformations, OpenAI selling-point generation, validation, staging, and publication into one centralized Delta table." />
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    :root{
+      --bg:#f5f8fc;--surface:#fff;--surface2:#f8fbff;--text:#172033;--muted:#5f6d82;
+      --border:#dbe5f0;--blue:#2563eb;--blue2:#dbeafe;--cyan:#0891b2;--cyan2:#cffafe;
+      --green:#15803d;--green2:#dcfce7;--amber:#b45309;--amber2:#fef3c7;
+      --red:#b91c1c;--red2:#fee2e2;--purple:#7e22ce;--purple2:#f3e8ff;
+      --shadow:0 14px 42px rgba(30,58,95,.08);--radius:18px;
+      --sans:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+    }
+    *{box-sizing:border-box} html{scroll-behavior:smooth}
+    body{margin:0;font-family:var(--sans);color:var(--text);line-height:1.6;background:
+      radial-gradient(circle at 8% 0%,rgba(37,99,235,.08),transparent 29rem),
+      radial-gradient(circle at 94% 7%,rgba(8,145,178,.07),transparent 31rem),var(--bg)}
+    a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
+    .shell{width:min(1540px,calc(100% - 30px));margin:auto;padding:22px 0 76px}
+    .hero{position:relative;overflow:hidden;background:linear-gradient(135deg,#fff 0%,#f4f8ff 58%,#eefcff 100%);border:1px solid var(--border);border-radius:28px;padding:42px;box-shadow:var(--shadow)}
+    .hero:after{content:"";position:absolute;width:320px;height:320px;border-radius:50%;right:-100px;top:-125px;background:linear-gradient(145deg,rgba(37,99,235,.16),rgba(8,145,178,.03))}
+    .eyebrow{display:inline-flex;padding:7px 12px;border-radius:999px;background:var(--blue2);color:#1e4f9f;font-size:12px;font-weight:850;letter-spacing:.08em;text-transform:uppercase}
+    h1{max-width:1120px;margin:18px 0 14px;font-size:clamp(34px,5vw,60px);line-height:1.05;letter-spacing:-.04em}
+    .hero p{max-width:1080px;margin:0;color:var(--muted);font-size:18px}
+    .hero-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin-top:27px}
+    .hero-stat{background:rgba(255,255,255,.87);border:1px solid var(--border);border-radius:15px;padding:16px}
+    .hero-stat strong{display:block;font-size:18px}.hero-stat span{font-size:13px;color:var(--muted)}
+    .layout{display:grid;grid-template-columns:285px minmax(0,1fr);gap:22px;align-items:start;margin-top:22px}
+    .sidebar{position:sticky;top:15px;max-height:calc(100vh - 30px);overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:15px}
+    .sidebar h3{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:5px 9px 9px}
+    .sidebar a{display:block;color:var(--text);font-size:14px;padding:9px 10px;border-radius:9px}.sidebar a:hover{background:var(--blue2);text-decoration:none}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:28px;margin-bottom:22px}
+    .card h2{margin:0 0 10px;font-size:clamp(24px,3vw,35px);letter-spacing:-.025em}.card h3{margin:23px 0 8px}
+    .lead{max-width:1080px;color:var(--muted);font-size:16px}
+    .callout{border-left:5px solid var(--blue);background:var(--surface2);border-radius:12px;padding:16px 18px;margin:16px 0}
+    .callout.success{border-color:var(--green);background:#f5fff7}.callout.warn{border-color:var(--amber);background:#fffaf1}.callout.danger{border-color:var(--red);background:#fff7f7}.callout.purple{border-color:var(--purple);background:#fcf8ff}
+    .two-col,.three-col,.four-col{display:grid;gap:14px}.two-col{grid-template-columns:repeat(2,minmax(0,1fr))}.three-col{grid-template-columns:repeat(3,minmax(0,1fr))}.four-col{grid-template-columns:repeat(4,minmax(0,1fr))}
+    .mini{background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:16px}.mini h3{margin:0 0 6px;font-size:16px}.mini p{margin:0;color:var(--muted);font-size:14px}
+    .mermaid-wrap{overflow:auto;background:#fbfdff;border:1px solid var(--border);border-radius:14px;padding:14px;margin:16px 0}.mermaid{min-width:800px}
+    table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px}th,td{border:1px solid var(--border);padding:11px 12px;vertical-align:top;text-align:left}th{background:#f2f7fc}td{background:#fff}
+    code{font-family:var(--mono);background:#edf3fa;padding:2px 5px;border-radius:5px;font-size:.92em}
+    pre{margin:0;background:#0f172a;color:#e8eef9;border-radius:14px;padding:20px;overflow:auto;white-space:pre;font-family:var(--mono);font-size:13px;line-height:1.5}
+    .code-shell{position:relative;margin:14px 0}.copy-btn{position:absolute;right:10px;top:10px;z-index:2;appearance:none;border:1px solid #34445f;background:#17233a;color:#eef5ff;border-radius:8px;padding:7px 10px;font:700 12px var(--sans);cursor:pointer}.copy-btn:hover{background:#23334e}
+    .badge{display:inline-flex;border-radius:999px;padding:4px 8px;font-size:10px;font-weight:900;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}.badge.green{background:var(--green2);color:var(--green)}.badge.amber{background:var(--amber2);color:var(--amber)}
+    .steps{counter-reset:step}.step{position:relative;border:1px solid var(--border);border-radius:15px;padding:18px 18px 18px 62px;margin:12px 0;background:#fff}.step:before{counter-increment:step;content:counter(step);position:absolute;left:17px;top:17px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--blue);color:#fff;font-weight:900}.step h3{margin:0 0 5px;font-size:17px}.step p{margin:0;color:var(--muted);font-size:14px}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}.tab{appearance:none;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:10px;padding:9px 12px;font:750 13px var(--sans);cursor:pointer}.tab.active{background:var(--blue);border-color:var(--blue);color:#fff}.tab-panel{display:none}.tab-panel.active{display:block}
+    .checklist label{display:grid;grid-template-columns:24px minmax(0,1fr);gap:9px;align-items:start;padding:10px 0;border-bottom:1px solid #edf2f7}.checklist label:last-child{border-bottom:0}.checklist input{width:18px;height:18px;accent-color:var(--blue);margin-top:3px}.checklist span{font-size:14px}
+    .footer{text-align:center;color:var(--muted);font-size:13px;padding:18px}.sources li{margin-bottom:8px;color:var(--muted)}
+    @media(max-width:1080px){.layout{grid-template-columns:1fr}.sidebar{position:relative;top:auto;max-height:none}.hero-grid,.four-col{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:720px){.shell{width:min(100% - 18px,1540px);padding-top:9px}.hero,.card{padding:20px;border-radius:17px}.hero-grid,.two-col,.three-col,.four-col{grid-template-columns:1fr}h1{font-size:35px}.step{padding-left:55px}}
+    @media print{body{background:#fff}.sidebar,.copy-btn,.tabs,.eyebrow{display:none!important}.layout{display:block}.card,.hero{box-shadow:none}.tab-panel{display:block!important}pre{white-space:pre-wrap;color:#000;background:#f5f5f5}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header class="hero" id="top">
+    <span class="eyebrow">Final Databricks-only design</span>
+    <h1>Centralized Competitive-Intelligence Table with JSON Transformations and LLM-Generated Selling Points</h1>
+    <p>A full-refresh Databricks workflow that reads the source table, applies governed transformation rules defined in JSON, creates the model-ready record, generates structured selling points through OpenAI, validates each response, and publishes one centralized Delta table. The current design intentionally contains no FastAPI and no change-detection logic.</p>
+    <div class="hero-grid">
+      <div class="hero-stat"><strong>Databricks only</strong><span>Transformation, LLM orchestration, validation, storage, and publication</span></div>
+      <div class="hero-stat"><strong>JSON-driven logic</strong><span>JSON defines mappings, normalization, conditions, and derived fields</span></div>
+      <div class="hero-stat"><strong>Full refresh</strong><span>Every eligible source row is processed during each scheduled run</span></div>
+      <div class="hero-stat"><strong>One central table</strong><span>Curated attributes, selling points, and operational metadata together</span></div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar">
+      <h3>Contents</h3>
+      <a href="#decision">Executive decision</a><a href="#scope">Current scope</a><a href="#architecture">Final architecture</a><a href="#json-role">Role of transformation JSON</a><a href="#pipeline">Pipeline stages</a><a href="#json-example">JSON design</a><a href="#transform-engine">Transformation engine</a><a href="#llm">LLM generation</a><a href="#processing">Batch processing</a><a href="#table">Central table</a><a href="#publish">Full-refresh publication</a><a href="#workflow">Databricks workflow</a><a href="#controls">Enterprise controls</a><a href="#checklist">Implementation checklist</a><a href="#references">Official references</a>
+    </nav>
+
+    <main>
+      <section class="card" id="decision">
+        <h2>1. Executive Decision</h2>
+        <div class="callout success"><strong>Recommended implementation:</strong> one scheduled Databricks workflow performs a complete rebuild of the centralized table using the current source table, JSON-defined transformation rules, and structured LLM generation.</div>
+        <div class="three-col">
+          <div class="mini"><h3>Transformation</h3><p>Load a versioned JSON rule file and compile only approved operations into PySpark column expressions.</p></div>
+          <div class="mini"><h3>Generation</h3><p>Send the transformed record to OpenAI and require a strict JSON response containing an array of selling points.</p></div>
+          <div class="mini"><h3>Publication</h3><p>Write a run-scoped staging Delta table, validate it, then replace the contents of the central table.</p></div>
+        </div>
+        <div class="callout warn"><strong>Data points unavailable:</strong> source schema, row volume, schedule, OpenAI model, rate limits, and exact JSON rule structure. The guide uses parameterized names and supports a full-refresh batch. Final concurrency and compute settings must be based on actual volume and API limits.</div>
+      </section>
+
+      <section class="card" id="scope">
+        <h2>2. Confirmed Current Scope</h2>
+        <table><thead><tr><th>Area</th><th>Current decision</th><th>Implication</th></tr></thead><tbody>
+          <tr><td>Execution platform</td><td><span class="badge green">Databricks only</span></td><td>No FastAPI or separate backend in the generation path.</td></tr>
+          <tr><td>Input</td><td>One governed source table</td><td>The workflow reads the source snapshot available at run time.</td></tr>
+          <tr><td>Transformation</td><td>Rules supplied through JSON</td><td>The JSON is configuration for deterministic transformations, not merely serialized source data.</td></tr>
+          <tr><td>LLM</td><td>OpenAI API key available to Databricks</td><td>Retrieve it from Databricks Secrets, never notebook source or tables.</td></tr>
+          <tr><td>Output</td><td>One centralized Delta table</td><td>The table combines transformed business fields, selling points, and generation metadata.</td></tr>
+          <tr><td>Change detection</td><td><span class="badge amber">Not implemented</span></td><td>Every eligible row is transformed and regenerated during each run.</td></tr>
+          <tr><td>Write strategy</td><td>Validated full refresh</td><td>Build staging first and publish only after all checks pass.</td></tr>
+        </tbody></table>
+        <div class="callout danger"><strong>Explicitly excluded:</strong> content hashes, Change Data Feed, CDC, incremental MERGE, row-skipping, FastAPI calls, user-triggered regeneration, and real-time serving.</div>
+      </section>
+
+      <section class="card" id="architecture">
+        <h2>3. Final End-to-End Architecture</h2>
+        <p class="lead">The transformation JSON controls deterministic curation. A separate JSON schema controls the LLM response. These are separate contracts and should be versioned independently.</p>
+        <div class="mermaid-wrap"><div class="mermaid">
+flowchart LR
+  S[(Unity Catalog<br/>Source Delta Table)]:::source
+  J[[Versioned Transformation<br/>Rules JSON]]:::json
+  C[JSON Rule Loader<br/>and Validator]:::control
+  T[PySpark Transformation<br/>Engine]:::transform
+  P[Model-Ready<br/>Record Builder]:::payload
+  K[(Databricks Secret<br/>OpenAI API Key)]:::secret
+  L[OpenAI Structured<br/>Generation]:::llm
+  V[Response Parsing<br/>and Validation]:::validate
+  R[(Run-Scoped Staging<br/>Delta Table)]:::stage
+  Q{Table-Level<br/>Quality Gates}:::decision
+  G[(Centralized Gold<br/>Delta Table)]:::target
+  E[(Quarantine and<br/>Run Error Table)]:::error
+  D[SQL / Snowflake / BI /<br/>Application Consumers]:::consumer
+  S --> T
+  J --> C --> T
+  T --> P --> L
+  K --> L
+  L --> V
+  V -->|Valid row| R
+  V -->|Invalid row| E
+  R --> Q
+  Q -->|Pass| G
+  Q -->|Fail, do not publish| E
+  G --> D
+  classDef source fill:#dbeafe,stroke:#2563eb,color:#1e3a8a,stroke-width:2px;
+  classDef json fill:#cffafe,stroke:#0891b2,color:#164e63,stroke-width:2px;
+  classDef control fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e;
+  classDef transform fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px;
+  classDef payload fill:#ecfccb,stroke:#65a30d,color:#365314;
+  classDef secret fill:#fef3c7,stroke:#d97706,color:#78350f;
+  classDef llm fill:#f3e8ff,stroke:#9333ea,color:#581c87,stroke-width:2px;
+  classDef validate fill:#e0e7ff,stroke:#4f46e5,color:#312e81;
+  classDef stage fill:#f1f5f9,stroke:#64748b,color:#0f172a;
+  classDef decision fill:#fff7ed,stroke:#ea580c,color:#7c2d12,stroke-width:2px;
+  classDef target fill:#dcfce7,stroke:#15803d,color:#14532d,stroke-width:3px;
+  classDef error fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px;
+  classDef consumer fill:#f8fafc,stroke:#475569,color:#0f172a;
+        </div></div>
+        <div class="callout purple"><strong>Central design principle:</strong> deterministic data transformation and probabilistic language generation remain separate. PySpark creates the trusted input. The LLM only converts approved facts into sentences.</div>
+      </section>
+
+      <section class="card" id="json-role">
+        <h2>4. What the JSON Does</h2>
+        <div class="two-col">
+          <div class="mini"><h3>Transformation-rules JSON</h3><p>Defines source mappings, filters, casts, normalization, conditional logic, derived fields, required fields, LLM fields, and target fields.</p></div>
+          <div class="mini"><h3>LLM-output JSON</h3><p>Defines the response contract returned by the model, such as <code>{"selling_points": [...]}</code>.</p></div>
+        </div>
+        <table><thead><tr><th>Contract</th><th>Producer</th><th>Consumer</th><th>Purpose</th></tr></thead><tbody>
+          <tr><td>Transformation configuration</td><td>Governed engineering configuration</td><td>Databricks transformation engine</td><td>Controls deterministic business transformations.</td></tr>
+          <tr><td>Model input object</td><td>PySpark engine</td><td>OpenAI model</td><td>Contains only approved facts required for sentence generation.</td></tr>
+          <tr><td>Structured model output</td><td>OpenAI model</td><td>Databricks validator</td><td>Provides typed selling points with predictable structure.</td></tr>
+          <tr><td>Central table schema</td><td>Data architecture</td><td>Consumers</td><td>Defines the stable published contract.</td></tr>
+        </tbody></table>
+        <div class="callout danger"><strong>Do not execute arbitrary code from JSON.</strong> Avoid Python <code>eval</code>, unrestricted SQL fragments, dynamic imports, or user-defined expressions. Compile an allowlisted set of rule types into PySpark columns.</div>
+      </section>
+
+      <section class="card" id="pipeline">
+        <h2>5. Full-Refresh Processing Stages</h2>
+        <div class="mermaid-wrap"><div class="mermaid">
+flowchart TD
+  A[Start Scheduled Run]:::start
+  B[Load and Validate<br/>Transformation JSON]:::json
+  C[Read Complete Eligible<br/>Source Snapshot]:::source
+  D[Apply Deterministic<br/>Transformation Rules]:::transform
+  E[Validate Transformed<br/>Business Fields]:::validate
+  F[Build One Approved<br/>Model Input per Row]:::payload
+  G[Generate Structured<br/>Selling Points]:::llm
+  H[Parse and Validate<br/>LLM Output]:::validate
+  I[Write Valid Rows to<br/>Run-Scoped Staging]:::stage
+  J[Write Invalid Rows to<br/>Quarantine]:::error
+  K{Staging Quality<br/>Gates Pass?}:::decision
+  L[INSERT OVERWRITE<br/>Centralized Table]:::publish
+  M[Keep Existing Published<br/>Table Unchanged]:::safe
+  N[Publish Run Metrics<br/>and Audit Metadata]:::observe
+  A --> B --> C --> D --> E --> F --> G --> H
+  H -->|Valid| I --> K
+  H -->|Invalid| J
+  K -->|Yes| L --> N
+  K -->|No| M --> N
+  J --> N
+  classDef start fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
+  classDef json fill:#cffafe,stroke:#0891b2,color:#164e63;
+  classDef source fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e;
+  classDef transform fill:#dcfce7,stroke:#16a34a,color:#14532d;
+  classDef payload fill:#ecfccb,stroke:#65a30d,color:#365314;
+  classDef llm fill:#f3e8ff,stroke:#9333ea,color:#581c87,stroke-width:2px;
+  classDef validate fill:#e0e7ff,stroke:#4f46e5,color:#312e81;
+  classDef stage fill:#f1f5f9,stroke:#64748b,color:#0f172a;
+  classDef error fill:#fee2e2,stroke:#dc2626,color:#7f1d1d;
+  classDef decision fill:#fff7ed,stroke:#ea580c,color:#7c2d12,stroke-width:2px;
+  classDef publish fill:#dcfce7,stroke:#15803d,color:#14532d,stroke-width:3px;
+  classDef safe fill:#fef3c7,stroke:#d97706,color:#78350f;
+  classDef observe fill:#f8fafc,stroke:#475569,color:#0f172a;
+        </div></div>
+        <div class="steps">
+          <div class="step"><h3>Validate configuration first</h3><p>Reject unknown rule types, duplicate target fields, missing required keys, unsupported casts, and schema-version mismatches.</p></div>
+          <div class="step"><h3>Read a consistent source snapshot</h3><p>Use one source-table version for the run so transformations and generation are based on a consistent dataset.</p></div>
+          <div class="step"><h3>Apply deterministic transformations</h3><p>Perform mappings, casts, null handling, derived fields, filtering, and formatting entirely in Spark.</p></div>
+          <div class="step"><h3>Generate only language</h3><p>The LLM receives transformed facts and returns concise factual sentences. It does not own business calculations.</p></div>
+          <div class="step"><h3>Stage before publishing</h3><p>Never overwrite the published table while the run is incomplete.</p></div>
+          <div class="step"><h3>Publish only after full validation</h3><p>Use full-table overwrite after schema, keys, row counts, LLM success, and content-quality checks pass.</p></div>
+        </div>
+      </section>
+
+      <section class="card" id="json-example">
+        <h2>6. Recommended Transformation JSON Design</h2>
+        <p class="lead">Adapt the property names to the existing JSON. The essential pattern is a versioned, declarative rule set with an allowlisted schema.</p>
+        <div class="code-shell"><button class="copy-btn">Copy</button><pre><code>{
+  "config_version": "1.0",
+  "pipeline_name": "competitive-selling-points",
+  "source": {
+    "table": "catalog.curated.competitive_source",
+    "business_key": ["entity_id"],
+    "filters": [
+      {"type": "equals", "column": "record_status", "value": "ACTIVE"},
+      {"type": "not_null", "column": "entity_id"}
+    ]
+  },
+  "transformations": [
+    {"type": "rename", "source": "competitor_nm", "target": "competitor_name"},
+    {"type": "trim", "source": "product_nm", "target": "product_name"},
+    {"type": "cast", "source": "monthly_price_raw", "target": "monthly_price", "data_type": "decimal(18,2)"},
+    {"type": "coalesce", "sources": ["contract_required", "default_contract_flag"], "target": "contract_required"},
+    {"type": "concat_ws", "sources": ["download_speed_value", "download_speed_unit"], "separator": " ", "target": "download_speed"},
+    {
+      "type": "case_when",
+      "target": "availability_statement",
+      "cases": [
+        {
+          "when": {"type": "equals", "column": "availability_code", "value": "SELECT"},
+          "then": "Available in selected markets"
+        }
+      ],
+      "otherwise": "Availability varies"
+    },
+    {
+      "type": "array_clean",
+      "source": "included_features",
+      "target": "included_features",
+      "trim": true,
+      "remove_empty": true,
+      "deduplicate": true,
+      "sort": true
+    }
+  ],
+  "required_fields": ["entity_id", "competitor_name", "product_name"],
+  "llm_input_fields": [
+    "competitor_name", "product_name", "product_category",
+    "download_speed", "upload_speed", "monthly_price",
+    "price_guarantee", "contract_required",
+    "availability_statement", "included_features",
+    "geography", "effective_date"
+  ],
+  "target_fields": [
+    "entity_id", "competitor_name", "product_name",
+    "product_category", "download_speed", "upload_speed",
+    "monthly_price", "price_guarantee", "contract_required",
+    "availability_statement", "included_features",
+    "geography", "effective_date"
+  ]
+}</code></pre></div>
+        <table><thead><tr><th>Category</th><th>Recommended operations</th><th>Control</th></tr></thead><tbody>
+          <tr><td>Selection</td><td><code>select</code>, <code>rename</code>, <code>drop</code></td><td>Columns must exist in the validated schema.</td></tr>
+          <tr><td>Data type</td><td><code>cast</code>, date parsing, decimal formatting</td><td>Allowlist Spark target types.</td></tr>
+          <tr><td>Null handling</td><td><code>coalesce</code>, default value, required check</td><td>Defaults must match target types.</td></tr>
+          <tr><td>Text</td><td><code>trim</code>, upper/lower, regex replace, <code>concat_ws</code></td><td>Restrict regex complexity.</td></tr>
+          <tr><td>Conditional</td><td><code>case_when</code>, code-to-label mapping</td><td>Represent predicates structurally, not as raw SQL.</td></tr>
+          <tr><td>Collections</td><td>deduplicate, remove empty, sort, join</td><td>Define deterministic ordering.</td></tr>
+          <tr><td>Business formulas</td><td>Named, tested transformation templates</td><td>JSON passes parameters only.</td></tr>
+        </tbody></table>
+      </section>
+
+      <section class="card" id="transform-engine">
+        <h2>7. Governed PySpark Transformation Engine</h2>
+        <p class="lead">The engine converts JSON rules into Spark expressions and fails closed when a rule is unknown or malformed.</p>
+        <div class="tabs"><button class="tab active" data-target="validator-panel">Configuration validation</button><button class="tab" data-target="compiler-panel">Rule compiler</button><button class="tab" data-target="payload-panel">Model input</button></div>
+        <div id="validator-panel" class="tab-panel active"><div class="code-shell"><button class="copy-btn">Copy</button><pre><code>from typing import Any, Literal
+from pydantic import BaseModel, Field, model_validator
+
+class FilterRule(BaseModel):
+    type: Literal["equals", "not_null"]
+    column: str
+    value: Any | None = None
+
+class TransformationRule(BaseModel):
+    type: Literal[
+        "rename", "trim", "cast", "coalesce",
+        "concat_ws", "case_when", "array_clean"
+    ]
+    source: str | None = None
+    sources: list[str] | None = None
+    target: str
+    data_type: str | None = None
+    separator: str | None = None
+    cases: list[dict[str, Any]] | None = None
+    otherwise: Any | None = None
+    trim: bool | None = None
+    remove_empty: bool | None = None
+    deduplicate: bool | None = None
+    sort: bool | None = None
+
+class SourceConfig(BaseModel):
+    table: str
+    business_key: list[str] = Field(min_length=1)
+    filters: list[FilterRule] = []
+
+class PipelineConfig(BaseModel):
+    config_version: str
+    pipeline_name: str
+    source: SourceConfig
+    transformations: list[TransformationRule]
+    required_fields: list[str]
+    llm_input_fields: list[str]
+    target_fields: list[str]
+
+    @model_validator(mode="after")
+    def validate_unique_targets(self):
+        targets = [rule.target for rule in self.transformations]
+        duplicates = {x for x in targets if targets.count(x) > 1}
+        if duplicates:
+            raise ValueError(f"Duplicate targets: {sorted(duplicates)}")
+        return self</code></pre></div></div>
+        <div id="compiler-panel" class="tab-panel"><div class="code-shell"><button class="copy-btn">Copy</button><pre><code>from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
+
+ALLOWED_CAST_TYPES = {
+    "string", "boolean", "date", "timestamp",
+    "int", "bigint", "double", "decimal(18,2)"
+}
+
+def compile_predicate(rule):
+    column = F.col(rule["column"])
+    if rule["type"] == "equals":
+        return column == F.lit(rule["value"])
+    if rule["type"] == "not_null":
+        return column.isNotNull()
+    raise ValueError(f"Unsupported predicate: {rule['type']}")
+
+def apply_rule(df: DataFrame, rule: dict) -> DataFrame:
+    rule_type = rule["type"]
+    target = rule["target"]
+
+    if rule_type == "rename":
+        return df.withColumn(target, F.col(rule["source"]))
+    if rule_type == "trim":
+        return df.withColumn(target, F.trim(F.col(rule["source"])))
+    if rule_type == "cast":
+        data_type = rule["data_type"]
+        if data_type not in ALLOWED_CAST_TYPES:
+            raise ValueError(f"Unsupported cast: {data_type}")
+        return df.withColumn(target, F.col(rule["source"]).cast(data_type))
+    if rule_type == "coalesce":
+        return df.withColumn(target, F.coalesce(*[F.col(x) for x in rule["sources"]]))
+    if rule_type == "concat_ws":
+        return df.withColumn(target, F.concat_ws(rule.get("separator", " "), *[F.col(x) for x in rule["sources"]]))
+    if rule_type == "case_when":
+        expression = None
+        for case in rule.get("cases", []):
+            predicate = compile_predicate(case["when"])
+            expression = F.when(predicate, F.lit(case["then"])) if expression is None else expression.when(predicate, F.lit(case["then"]))
+        if expression is None:
+            raise ValueError("case_when requires at least one case")
+        return df.withColumn(target, expression.otherwise(F.lit(rule.get("otherwise"))))
+    if rule_type == "array_clean":
+        source = F.coalesce(F.col(rule["source"]), F.array().cast("array&lt;string&gt;"))
+        result = F.transform(source, lambda value: F.trim(value))
+        if rule.get("remove_empty", True):
+            result = F.filter(result, lambda value: value != "")
+        if rule.get("deduplicate", True):
+            result = F.array_distinct(result)
+        if rule.get("sort", False):
+            result = F.array_sort(result)
+        return df.withColumn(target, result)
+    raise ValueError(f"Unsupported transformation: {rule_type}")
+
+def apply_config(df: DataFrame, config: dict) -> DataFrame:
+    transformed = df
+    for filter_rule in config["source"].get("filters", []):
+        transformed = transformed.filter(compile_predicate(filter_rule))
+    for rule in config["transformations"]:
+        transformed = apply_rule(transformed, rule)
+    return transformed.select(*config["target_fields"])</code></pre></div></div>
+        <div id="payload-panel" class="tab-panel"><div class="code-shell"><button class="copy-btn">Copy</button><pre><code>from pyspark.sql import functions as F
+
+def build_model_input(df, config):
+    fields = config["llm_input_fields"]
+    return (
+        df
+        .withColumn(
+            "llm_input_struct",
+            F.struct(*[F.col(field).alias(field) for field in fields]),
+        )
+        .withColumn(
+            "llm_input_json",
+            F.to_json(
+                F.col("llm_input_struct"),
+                options={
+                    "ignoreNullFields": "true",
+                    "dateFormat": "yyyy-MM-dd",
+                    "timestampFormat": "yyyy-MM-dd'T'HH:mm:ssXXX"
+                },
+            ),
+        )
+    )</code></pre></div><div class="callout"><strong>Clarification:</strong> this JSON string is generated after applying the configuration-driven transformations. It is the model payload. The original JSON file remains the transformation specification.</div></div>
+      </section>
+
+      <section class="card" id="llm">
+        <h2>8. LLM Generation Contract</h2>
+        <p class="lead">The model converts transformed facts into concise selling points. It must not calculate source fields, alter business meaning, or introduce unsupported comparative claims.</p>
+        <div class="mermaid-wrap"><div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant DB as Databricks Python Task
+  participant SEC as Databricks Secrets
+  participant OAI as OpenAI API
+  participant VAL as Output Validator
+  participant STG as Staging Delta Table
+  DB->>SEC: Retrieve API key
+  SEC-->>DB: Secret value
+  DB->>DB: Build transformed input JSON
+  DB->>OAI: Request strict structured response
+  OAI-->>DB: selling_points JSON
+  DB->>VAL: Validate schema and content
+  alt Valid
+    VAL-->>DB: Typed selling_points array
+    DB->>STG: Write successful enriched row
+  else Invalid or API failure
+    VAL-->>DB: Error category and details
+    DB->>STG: Write failed status or quarantine row
+  end
+        </div></div>
+        <h3>Response schema</h3>
+        <div class="code-shell"><button class="copy-btn">Copy</button><pre><code>from pydantic import BaseModel, Field
+
+class SellingPointsOutput(BaseModel):
+    selling_points: list[str] = Field(
+        min_length=2,
+        max_length=5,
+        description="Distinct factual selling points derived only from the supplied transformed record."
+    )</code></pre></div>
+        <h3>System instruction</h3>
+        <div class="code-shell"><button class="copy-btn">Copy</button><pre><code>You generate concise competitive-intelligence selling points.
+
+Use only the facts in the supplied JSON record.
+Do not add external facts or assumptions.
+Do not calculate or transform business values.
+Do not compare products unless the record explicitly contains the comparison.
+Do not use unsupported superlatives such as best, cheapest, leading,
+superior, unmatched, or most reliable.
+
+Generate 2 to 5 distinct selling points.
+
+Each selling point must:
+- Be one complete sentence.
+- Contain no more than 25 words.
+- Preserve material qualifiers such as geography, eligibility,
+  availability, effective date, and price conditions.
+- Describe a factual attribute in clear business language.
+- Avoid repeating another selling point.
+
+Return only the required structured output.</code></pre></div>
+        <h3>OpenAI client pattern</h3>
+        <div class="code-shell"><button class="copy-btn">Copy</button><pre><code>from openai import OpenAI
+
+api_key = dbutils.secrets.get(
+    scope="competitive-intelligence-prod",
+    key="openai-api-key",
+)
+
+client = OpenAI(
+    api_key=api_key,
+    timeout=45.0,
+    max_retries=0,
+)
+
+def generate_selling_points(payload_json: str) -> SellingPointsOutput:
+    response = client.responses.parse(
+        model="&lt;approved-model&gt;",
+        input=[
+            {"role": "system", "content": SYSTEM_INSTRUCTION},
+            {"role": "user", "content": payload_json},
+        ],
+        text_format=SellingPointsOutput,
+    )
+    return response.output_parsed</code></pre></div>
+        <div class="callout warn">The exact SDK method varies by the pinned OpenAI Python SDK version. Pin and test the SDK in Databricks, then use the structured-output interface supported by that version.</div>
+      </section>
+
+      <section class="card" id="processing">
+        <h2>9. Safe Batch Processing Without Change Detection</h2>
+        <p class="lead">The current job processes every eligible row. Select an execution method based on source volume while preventing uncontrolled API calls and Spark retry duplication.</p>
+        <table><thead><tr><th>Volume</th><th>Recommended pattern</th><th>Main caveat</th></tr></thead><tbody>
+          <tr><td>Small</td><td><code>toLocalIterator()</code> with a bounded thread pool in one Python task.</td><td>Driver memory and run duration must remain safe.</td></tr>
+          <tr><td>Moderate</td><td>Controlled partitions using <code>mapPartitions</code>, one OpenAI client per partition.</td><td>Spark task retries can repeat API calls.</td></tr>
+          <tr><td>Large offline batch</td><td>Generate JSONL in Databricks, submit to OpenAI Batch API, poll in a later task, then reconcile results.</td><td>More workflow complexity, but improved throughput control.</td></tr>
+        </tbody></table>
+        <div class="callout danger"><strong>Avoid a normal row-level Spark UDF that calls OpenAI.</strong> It hides network behavior inside Spark, can create uncontrolled concurrency, may repeat calls during task retries, and is difficult to rate-limit.</div>
+        <h3>Small-volume bounded-concurrency example</h3>
+        <div class="code-shell"><button class="copy-btn">Copy</button><pre><code>from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
+import random, time, uuid
+
+MAX_CONCURRENCY = 6
+MAX_ATTEMPTS = 3
+
+def generate_with_retry(row):
+    last_error = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            parsed = generate_selling_points(row.llm_input_json)
+            return {
+                **row.asDict(recursive=True),
+                "selling_points": parsed.selling_points,
+                "generation_status": "SUCCESS",
+                "validation_status": "VALID",
+                "generation_attempt_count": attempt,
+                "error_code": None,
+                "error_message": None,
+            }
+        except Exception as exc:
+            last_error = exc
+            if attempt == MAX_ATTEMPTS:
+                break
+            time.sleep(min(2 ** attempt, 10) + random.random())
+    return {
+        **row.asDict(recursive=True),
+        "selling_points": None,
+        "generation_status": "FAILED",
+        "validation_status": "NOT_VALIDATED",
+        "generation_attempt_count": MAX_ATTEMPTS,
+        "error_code": type(last_error).__name__,
+        "error_message": str(last_error)[:1000],
+    }
+
+run_id = str(uuid.uuid4())
+generated_at = datetime.now(timezone.utc)
+results = []
+
+with ThreadPoolExecutor(max_workers=MAX_CONCURRENCY) as executor:
+    futures = {
+        executor.submit(generate_with_retry, row): row.entity_id
+        for row in transformed_df.toLocalIterator()
+    }
+    for future in as_completed(futures):
+        result = future.result()
+        result["pipeline_run_id"] = run_id
+        result["generated_at"] = generated_at
+        results.append(result)</code></pre></div>
+        <div class="callout">For anything beyond small volume, avoid retaining all results in the driver's list. Write bounded chunks to staging or use a partition-oriented implementation.</div>
+      </section>
+
+      <section class="card" id="table">
+        <h2>10. Centralized Table Design</h2>
+        <p class="lead">The table contains transformed business attributes, a native <code>ARRAY&lt;STRING&gt;</code> of selling points, and enough metadata to operate and audit the full-refresh process.</p>
+        <div class="mermaid-wrap"><div class="mermaid">
+erDiagram
+  CENTRALIZED_COMPETITIVE_INTELLIGENCE {
+    string entity_id PK
+    string competitor_name
+    string product_name
+    string product_category
+    string download_speed
+    string upload_speed
+    decimal monthly_price
+    string price_guarantee
+    boolean contract_required
+    string availability_statement
+    array included_features
+    string geography
+    date effective_date
+    array selling_points
+    string transformation_config_version
+    string prompt_version
+    string model_name
+    string output_schema_version
+    timestamp source_snapshot_at
+    timestamp generated_at
+    string generation_status
+    string validation_status
+    int generation_attempt_count
+    string error_code
+    string error_message
+    string pipeline_run_id
+    timestamp target_updated_at
+  }
+        </div></div>
+        <div class="code-shell"><button class="copy-btn">Copy</button><pre><code>CREATE TABLE IF NOT EXISTS
+catalog.gold.competitive_intelligence_centralized
+(
+    entity_id                       STRING NOT NULL,
+    competitor_name                 STRING,
+    product_name                    STRING,
+    product_category                STRING,
+    download_speed                  STRING,
+    upload_speed                    STRING,
+    monthly_price                   DECIMAL(18,2),
+    price_guarantee                 STRING,
+    contract_required               BOOLEAN,
+    availability_statement          STRING,
+    included_features               ARRAY&lt;STRING&gt;,
+    geography                       STRING,
+    effective_date                  DATE,
+    selling_points                  ARRAY&lt;STRING&gt;,
+    transformation_config_version   STRING,
+    prompt_version                  STRING,
+    model_name                      STRING,
+    output_schema_version           STRING,
+    source_snapshot_at              TIMESTAMP,
+    generated_at                    TIMESTAMP,
+    generation_status               STRING,
+    validation_status               STRING,
+    generation_attempt_count        INT,
+    error_code                      STRING,
+    error_message                   STRING,
+    pipeline_run_id                 STRING,
+    target_updated_at               TIMESTAMP
+)
+USING DELTA;</code></pre></div>
+        <div class="three-col"><div class="mini"><h3>Stable schema</h3><p>The number of valid selling points can vary without adding columns.</p></div><div class="mini"><h3>UI-friendly</h3><p>Consumers can render the list or flatten it for fixed fields.</p></div><div class="mini"><h3>Better validation</h3><p>Each sentence can be checked independently.</p></div></div>
+      </section>
+
+      <section class="card" id="publish">
+        <h2>11. Full-Refresh Staging and Publication</h2>
+        <p class="lead">Since there is no change detection, do not use incremental MERGE logic. Build the complete target dataset in staging and publish only after validation.</p>
+        <div class="mermaid-wrap"><div class="mermaid">
+flowchart LR
+  A[(Current Published<br/>Central Table)]:::current
+  B[New Full-Refresh<br/>Workflow Run]:::run
+  C[(Run-Scoped<br/>Staging Table)]:::stage
+  D{Schema, Keys, Counts,<br/>LLM and Quality Gates}:::decision
+  E[INSERT OVERWRITE<br/>Published Table]:::publish
+  F[Retain Existing<br/>Published Version]:::safe
+  G[(Quarantine and<br/>Run Audit)]:::error
+  A -. remains queryable .-> D
+  B --> C --> D
+  D -->|Pass| E --> A
+  D -->|Fail| F
+  D --> G
+  classDef current fill:#dbeafe,stroke:#2563eb,color:#1e3a8a,stroke-width:2px;
+  classDef run fill:#cffafe,stroke:#0891b2,color:#164e63;
+  classDef stage fill:#f1f5f9,stroke:#64748b,color:#0f172a;
+  classDef decision fill:#fff7ed,stroke:#ea580c,color:#7c2d12,stroke-width:2px;
+  classDef publish fill:#dcfce7,stroke:#15803d,color:#14532d,stroke-width:3px;
+  classDef safe fill:#fef3c7,stroke:#d97706,color:#78350f;
+  classDef error fill:#fee2e2,stroke:#dc2626,color:#7f1d1d;
+        </div></div>
+        <h3>Run-scoped staging</h3>
+        <div class="code-shell"><button class="copy-btn">Copy</button><pre><code>staging_table = (
+    "catalog.staging."
+    f"competitive_intelligence_centralized_{run_id.replace('-', '_')}"
+)
+
+(
+    enriched_results_df
+    .write
+    .format("delta")
+    .mode("overwrite")
+    .saveAsTable(staging_table)
+)</code></pre></div>
+        <h3>Quality gates</h3>
+        <table><thead><tr><th>Gate</th><th>Example rule</th><th>Failure action</th></tr></thead><tbody>
+          <tr><td>Schema</td><td>Staging schema exactly matches the publication schema.</td><td>Do not publish.</td></tr>
+          <tr><td>Business key</td><td><code>entity_id</code> is non-null and unique.</td><td>Do not publish.</td></tr>
+          <tr><td>Source reconciliation</td><td>Eligible source count equals staged success plus approved failure handling.</td><td>Do not publish when rows are unexplained.</td></tr>
+          <tr><td>Transformation completeness</td><td>Required fields meet approved non-null thresholds.</td><td>Do not publish.</td></tr>
+          <tr><td>LLM success</td><td>Success rate meets the release threshold.</td><td>Fail or require approved partial policy.</td></tr>
+          <tr><td>Selling-point quality</td><td>Each valid row contains 2 to 5 distinct approved sentences.</td><td>Quarantine invalid rows.</td></tr>
+          <tr><td>Volume anomaly</td><td>Row count is within an approved source or historical range.</td><td>Investigate before publication.</td></tr>
+        </tbody></table>
+        <h3>Publication</h3>
+        <div class="code-shell"><button class="copy-btn">Copy</button><pre><code>INSERT OVERWRITE TABLE
+  catalog.gold.competitive_intelligence_centralized
+SELECT
+  entity_id,
+  competitor_name,
+  product_name,
+  product_category,
+  download_speed,
+  upload_speed,
+  monthly_price,
+  price_guarantee,
+  contract_required,
+  availability_statement,
+  included_features,
+  geography,
+  effective_date,
+  selling_points,
+  transformation_config_version,
+  prompt_version,
+  model_name,
+  output_schema_version,
+  source_snapshot_at,
+  generated_at,
+  generation_status,
+  validation_status,
+  generation_attempt_count,
+  error_code,
+  error_message,
+  pipeline_run_id,
+  current_timestamp() AS target_updated_at
+FROM catalog.staging.&lt;validated_run_table&gt;;</code></pre></div>
+        <div class="callout success"><strong>Why staging matters:</strong> consumers continue querying the previous successful table while the current run performs transformations and model calls. A failed run never leaves the centralized table partially rebuilt.</div>
+      </section>
+
+      <section class="card" id="workflow">
+        <h2>12. Lakeflow Jobs Workflow</h2>
+        <div class="mermaid-wrap"><div class="mermaid">
+flowchart TD
+  T0[Scheduled Trigger]:::trigger
+  T1[01 Validate JSON Config]:::config
+  T2[02 Read Source and<br/>Apply Transformations]:::transform
+  T3[03 Validate Transformed Data]:::validate
+  T4[04 Generate Selling Points]:::llm
+  T5[05 Validate and Write Staging]:::stage
+  T6[06 Run Table Quality Gates]:::validate
+  T7{Publish Approved?}:::decision
+  T8[07 INSERT OVERWRITE<br/>Central Table]:::publish
+  T9[08 Persist Quarantine<br/>and Run Metrics]:::observe
+  T10[Fail Without Changing<br/>Published Table]:::error
+  T0 --> T1 --> T2 --> T3 --> T4 --> T5 --> T6 --> T7
+  T7 -->|Yes| T8 --> T9
+  T7 -->|No| T10 --> T9
+  classDef trigger fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
+  classDef config fill:#cffafe,stroke:#0891b2,color:#164e63;
+  classDef transform fill:#dcfce7,stroke:#16a34a,color:#14532d;
+  classDef validate fill:#e0e7ff,stroke:#4f46e5,color:#312e81;
+  classDef llm fill:#f3e8ff,stroke:#9333ea,color:#581c87,stroke-width:2px;
+  classDef stage fill:#f1f5f9,stroke:#64748b,color:#0f172a;
+  classDef decision fill:#fff7ed,stroke:#ea580c,color:#7c2d12,stroke-width:2px;
+  classDef publish fill:#dcfce7,stroke:#15803d,color:#14532d,stroke-width:3px;
+  classDef observe fill:#f8fafc,stroke:#475569,color:#0f172a;
+  classDef error fill:#fee2e2,stroke:#dc2626,color:#7f1d1d;
+        </div></div>
+        <table><thead><tr><th>Task</th><th>Responsibility</th><th>Output</th></tr></thead><tbody>
+          <tr><td>01 Validate config</td><td>Schema, allowlist, columns, targets, version.</td><td>Approved configuration or failed run.</td></tr>
+          <tr><td>02 Transform</td><td>Read source snapshot and apply deterministic JSON rules.</td><td>Transformed DataFrame or temporary table.</td></tr>
+          <tr><td>03 Validate data</td><td>Required fields, types, key uniqueness, business constraints.</td><td>Approved rows and transformation quarantine.</td></tr>
+          <tr><td>04 LLM generation</td><td>Bounded OpenAI requests with structured output.</td><td>Selling points, metadata, errors.</td></tr>
+          <tr><td>05 Staging</td><td>Combine transformed fields and generation outputs.</td><td>Complete run-scoped staging table.</td></tr>
+          <tr><td>06 Quality gates</td><td>Schema, counts, success threshold, uniqueness, content quality.</td><td>Publish decision.</td></tr>
+          <tr><td>07 Publication</td><td>Replace the published table contents.</td><td>New centralized snapshot.</td></tr>
+          <tr><td>08 Operations</td><td>Persist metrics, errors, tokens, latency, audit.</td><td>Observability and quarantine records.</td></tr>
+        </tbody></table>
+      </section>
+
+      <section class="card" id="controls">
+        <h2>13. Enterprise Controls and Caveats</h2>
+        <div class="two-col"><div><h3>Security and governance</h3><table><tbody>
+          <tr><th>API key</th><td>Store in Databricks Secrets and grant only the workflow run identity.</td></tr>
+          <tr><th>Data minimization</th><td>Send only approved transformed fields to OpenAI.</td></tr>
+          <tr><th>Configuration access</th><td>Version and restrict transformation JSON changes.</td></tr>
+          <tr><th>Unity Catalog</th><td>Separate staging, Gold, and operations schemas with controlled ownership.</td></tr>
+          <tr><th>Prompt control</th><td>Version prompts and review material wording changes.</td></tr>
+          <tr><th>Error storage</th><td>Redact secrets and avoid retaining complete model inputs without approval.</td></tr>
+        </tbody></table></div><div><h3>Reliability and operations</h3><table><tbody>
+          <tr><th>Full-refresh cost</th><td>Every run regenerates all eligible rows. Estimate requests, tokens, duration, and spend.</td></tr>
+          <tr><th>Rate limits</th><td>Set concurrency below project request and token limits.</td></tr>
+          <tr><th>Retries</th><td>Retry only transient failures with bounded attempts, backoff, and jitter.</td></tr>
+          <tr><th>Partial failures</th><td>Define whether any failed row blocks publication. Default is fail closed unless approved otherwise.</td></tr>
+          <tr><th>Reproducibility</th><td>Store configuration, prompt, schema, model, run ID, and source snapshot timestamps.</td></tr>
+          <tr><th>Rollback</th><td>Use Delta table history or the approved restore procedure.</td></tr>
+        </tbody></table></div></div>
+        <h3>Required run metrics</h3>
+        <div class="four-col"><div class="mini"><h3>Data</h3><p>Source, eligible, transformed, rejected, and published rows.</p></div><div class="mini"><h3>LLM</h3><p>Requests, successes, failures, retries, tokens, refusals.</p></div><div class="mini"><h3>Performance</h3><p>Total duration, transform time, average and p95 model latency, publish time.</p></div><div class="mini"><h3>Quality</h3><p>Invalid JSON, bad point count, duplicates, prohibited claims, missing qualifiers.</p></div></div>
+        <div class="callout warn"><strong>Future enhancement, not current scope:</strong> consider change detection only when repeated full-table regeneration becomes expensive, slow, or causes unnecessary wording drift.</div>
+      </section>
+
+      <section class="card" id="checklist">
+        <h2>14. Implementation Checklist</h2>
+        <div class="checklist">
+          <label><input type="checkbox"><span>Define centralized-table grain and business key.</span></label>
+          <label><input type="checkbox"><span>Document full-refresh schedule, source snapshot, and row volume.</span></label>
+          <label><input type="checkbox"><span>Define and version the transformation JSON schema.</span></label>
+          <label><input type="checkbox"><span>Implement an allowlisted rule compiler without arbitrary code evaluation.</span></label>
+          <label><input type="checkbox"><span>Validate source columns and target fields before processing.</span></label>
+          <label><input type="checkbox"><span>Define transformed-field quality rules and quarantine behavior.</span></label>
+          <label><input type="checkbox"><span>Store the OpenAI key in Databricks Secrets and restrict the run identity.</span></label>
+          <label><input type="checkbox"><span>Pin the OpenAI SDK and approved model configuration.</span></label>
+          <label><input type="checkbox"><span>Define the structured selling-points response schema.</span></label>
+          <label><input type="checkbox"><span>Approve the factual-language prompt and prohibited-claim rules.</span></label>
+          <label><input type="checkbox"><span>Choose the small, moderate, or large-volume API execution pattern.</span></label>
+          <label><input type="checkbox"><span>Set bounded concurrency, timeout, retry, and rate-limit controls.</span></label>
+          <label><input type="checkbox"><span>Create staging, quarantine, run-metrics, and centralized Gold tables.</span></label>
+          <label><input type="checkbox"><span>Define publication gates and partial-failure policy.</span></label>
+          <label><input type="checkbox"><span>Publish using full-table overwrite only after staging passes.</span></label>
+          <label><input type="checkbox"><span>Test rollback through Delta history or restore.</span></label>
+          <label><input type="checkbox"><span>Load-test the complete run against source volume and OpenAI limits.</span></label>
+          <label><input type="checkbox"><span>Review token cost and runtime for every scheduled full refresh.</span></label>
+        </div>
+      </section>
+
+      <section class="card sources" id="references">
+        <h2>15. Official References</h2>
+        <ul>
+          <li><a href="https://docs.databricks.com/aws/en/jobs/" target="_blank" rel="noopener">Databricks Lakeflow Jobs</a></li>
+          <li><a href="https://docs.databricks.com/aws/en/security/secrets/" target="_blank" rel="noopener">Databricks secret management</a></li>
+          <li><a href="https://docs.databricks.com/aws/en/pyspark/reference/functions/to_json" target="_blank" rel="noopener">Databricks PySpark to_json</a></li>
+          <li><a href="https://docs.databricks.com/aws/en/sql/language-manual/functions/from_json" target="_blank" rel="noopener">Databricks from_json</a></li>
+          <li><a href="https://docs.databricks.com/aws/en/delta/tutorial" target="_blank" rel="noopener">Databricks Delta append and overwrite</a></li>
+          <li><a href="https://platform.openai.com/docs/guides/structured-outputs" target="_blank" rel="noopener">OpenAI Structured Outputs</a></li>
+          <li><a href="https://platform.openai.com/docs/api-reference/batch" target="_blank" rel="noopener">OpenAI Batch API</a></li>
+        </ul>
+      </section>
+
+      <div class="footer">Final scope: Databricks full refresh, JSON-defined deterministic transformation, OpenAI selling-point generation, validated staging, and one centralized Delta table.</div>
+    </main>
+  </div>
+</div>
+<script>
+  mermaid.initialize({startOnLoad:true,theme:"base",securityLevel:"loose",themeVariables:{background:"#ffffff",primaryColor:"#dbeafe",primaryTextColor:"#172033",primaryBorderColor:"#2563eb",lineColor:"#64748b",secondaryColor:"#dcfce7",tertiaryColor:"#f3e8ff",fontFamily:"Inter, system-ui, sans-serif"},flowchart:{curve:"basis",htmlLabels:true},sequence:{useMaxWidth:true},er:{useMaxWidth:true}});
+  document.querySelectorAll(".copy-btn").forEach(button=>button.addEventListener("click",async()=>{const code=button.parentElement.querySelector("pre").innerText;try{await navigator.clipboard.writeText(code);const old=button.textContent;button.textContent="Copied";setTimeout(()=>button.textContent=old,1300)}catch{alert("Clipboard access was blocked. Select and copy manually.")}}));
+  document.querySelectorAll(".tab").forEach(tab=>tab.addEventListener("click",()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));document.querySelectorAll(".tab-panel").forEach(x=>x.classList.remove("active"));tab.classList.add("active");document.getElementById(tab.dataset.target).classList.add("active")}));
+  const key="databricks-selling-points-final-checklist-v1";const checks=[...document.querySelectorAll('.checklist input[type="checkbox"]')];try{const saved=JSON.parse(localStorage.getItem(key)||"{}");checks.forEach((b,i)=>b.checked=!!saved[i])}catch{}checks.forEach(()=>{});checks.forEach((b,i)=>b.addEventListener("change",()=>{const state={};checks.forEach((x,j)=>state[j]=x.checked);localStorage.setItem(key,JSON.stringify(state))}));
+</script>
+</body>
+</html>
